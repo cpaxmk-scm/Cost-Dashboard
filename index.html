@@ -406,10 +406,10 @@ const lmStale = () => lmIdx()>=0 && lmIdx()!==mi(S.month);
    'Last Mile Calculation.xlsx' → sheet 4.
    --------------------------------------------------------------------------- */
 let LM_LAST = -1; LM.has.forEach((v,i)=>{ if(v && i<=LAST) LM_LAST=i; });
-const SRC_NAME = { PNL:'FC P&L (AO)', LMD:'LMD file (RMS)' };
+const SRC_NAME = { PNL:'AO', LMD:'RMS' };
 const SRC_TIP  = {
-  PNL:'Source: FC Cost Data.xlsx → P&L "− Last mile" rows; FC sales from Axtra Omni Channel (AO). This is the finance ledger view of fulfillment delivery.',
-  LMD:'Source: LMD Cost Data.xlsb → "Cost (FC)" and "Sales (FC)"; sales from RMS. This is the delivery-operation view of the same trips.',
+  PNL:'AO — Axtra Omni Channel. Cost and sales come from FC Cost Data.xlsx (P&L “− Last mile” rows and P&L sales). This is the fulfillment ledger view of the same deliveries.',
+  LMD:'RMS — cost and sales come from LMD Cost Data.xlsb (“Cost (FC)” and “Sales (FC)”). This is the delivery-operation view of the same trips.',
 };
 const lmFC_PNL  = sumFC('lm');
 const lmFC_LMD  = LM.ok ? LM.fc.cost  : M.map(_=>0);
@@ -625,6 +625,12 @@ function renderAxisChart(cfg, W, H, id){
       dss.forEach(d=>{ if((d.yAxisID||'y')!==axis) return; d.data.forEach(v=>{ v=nz(v); if(v==null)return; hi=Math.max(hi,v); lo=Math.min(lo,v); }); });
     }
     if(hi===0 && lo===0) hi=1;
+    const cfgAx = (opts.scales && opts.scales[axis]) || {};
+    if(cfgAx.max!=null || cfgAx.min!=null){          /* fixed scale, e.g. a 0-100% stack */
+      const lo2 = cfgAx.min!=null? cfgAx.min : Math.min(0,lo);
+      const hi2 = cfgAx.max!=null? cfgAx.max : hi;
+      return niceTicks(lo2, hi2, 5);
+    }
     const head=(hi-lo)*(stackTotals||dss.some(d=>d.dl)?0.14:0.08);
     return niceTicks(lo, hi+head, 5);
   }
@@ -673,7 +679,9 @@ function renderAxisChart(cfg, W, H, id){
   const groups = stacked? 1 : Math.max(barDss.length,1);
   const bw = Math.max(band*0.62/groups, 2);
   const cum = labels.map(()=>({p:0,q:0}));
+  const BARPOS = {};        /* BARPOS[gi][i] = {cx, cy, thick, span} — centre of the drawn segment */
   barDss.forEach((d,gi)=>{
+    BARPOS[gi] = BARPOS[gi] || {};
     const fillOf = i => Array.isArray(d.backgroundColor)? d.backgroundColor[i] : (d.backgroundColor||C.navy);
     for(let i=0;i<n;i++){
       const v=nz(d.data[i]); if(v==null||v===0) continue;
@@ -689,10 +697,12 @@ function renderAxisChart(cfg, W, H, id){
         const y = bandPos(i) - bw/2;
         const x0=sx(a), x1=sx(b);
         out.push(`${gO}<rect x="${Math.min(x0,x1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.abs(x1-x0).toFixed(1)}" height="${bw.toFixed(1)}" rx="2.5" fill="${fillOf(i)}" stroke="${d.borderColor||'none'}" stroke-width="${d.borderColor?1:0}">${t}</rect></g>`);
+        BARPOS[gi][i] = {cx:(x0+x1)/2, cy:bandPos(i), end:Math.max(x0,x1), span:Math.abs(x1-x0), thick:bw};
       } else {
         const x = bandPos(i) - (stacked? bw/2 : bw*groups/2 - gi*bw);
         const y0=sy(a), y1=sy(b);
         out.push(`${gO}<rect x="${x.toFixed(1)}" y="${Math.min(y0,y1).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(Math.abs(y0-y1),0.8).toFixed(1)}" rx="2" fill="${fillOf(i)}" stroke="${d.borderColor||'none'}" stroke-width="${d.borderColor?1:0}">${t}</rect></g>`);
+        BARPOS[gi][i] = {cx:x+bw/2, cy:(y0+y1)/2, top:Math.min(y0,y1), span:Math.abs(y0-y1), thick:bw};
       }
     }
   });
@@ -724,6 +734,7 @@ function renderAxisChart(cfg, W, H, id){
         if(!clash){ ok=true; break; }
         y-=11;                                /* nudge up, then give up (skip) */
       }
+      if(L.force){ s+=txt(L.x,L.y,L.s,{color:L.color,weight:L.weight,size:L.size,anchor:L.anchor}); return; }
       if(ok && y>8){ placed.push({cx,y,w}); s+=txt(L.x,y,L.s,{color:L.color,weight:L.weight,size:L.size,anchor:L.anchor}); }
     });
     return s;
@@ -757,23 +768,37 @@ function renderAxisChart(cfg, W, H, id){
   });
 
   /* value labels (dl) — queued, then collision-resolved */
-  dss.forEach((d,gi)=>{
+  const barIndex = new Map(); barDss.forEach((d,k)=>barIndex.set(d,k));
+  /* readable-on-fill: white text inside a dark segment, dark text on a light one */
+  const lum = hex => { const m=/^#?([0-9a-f]{6})$/i.exec(String(hex)||''); if(!m) return 1;
+    const n_=parseInt(m[1],16), r=(n_>>16)&255, g=(n_>>8)&255, b=n_&255;
+    return (0.299*r+0.587*g+0.114*b)/255; };
+  dss.forEach(d=>{
     if(!d.dl) return;
+    const gi = barIndex.has(d) ? barIndex.get(d) : -1;
     const dd = d.dl.fmt? null : adaptDec(d.data.map(nz), d.dl.dec);
     const f = d.dl.fmt || (x=>fmt(x,dd));
     const li=(()=>{let k=-1; d.data.forEach((v,i)=>{ if(nz(v)!=null) k=i; }); return k;})();
     const sc=(d.yAxisID==='y2'&&sy2)? sy2 : sy;
+    const fill = (typeof d.backgroundColor==='string')? d.backgroundColor : null;
     for(let i=0;i<n;i++){
       const v=nz(d.data[i]); if(v==null||(v===0&&isLine(d))) continue;
       if((d.dl.mode||'all')==='last' && i!==li) continue;
       const col=d.dl.color|| (isLine(d)? (d.borderColor||C.ink2) : C.ink2);
-      if(horiz){
-        qLabel(sx(Math.max(0,v))+5, bandPos(i)+3, f(v), {anchor:'start', color:col, prio:1});
-      } else if(isLine(d)){
+      const pos = (gi>=0 && BARPOS[gi]) ? BARPOS[gi][i] : null;
+      if(isLine(d)){
         qLabel(bandPos(i), sc(v)-7, f(v), {color:col, weight:700, prio:1});
-      } else if(!stacked){
-        const x=bandPos(i)-(bw*barDss.length/2)+gi*bw+bw/2;
-        qLabel(x, sy(Math.max(0,v))-4, f(v), {color:col, prio:2});
+      } else if(stacked && d.stack && pos){
+        /* inside the segment, centred both ways — only when the segment is big enough */
+        const txt=f(v), need=txt.length*5.6;
+        if(horiz ? (pos.span>need+8 && pos.thick>11) : (pos.span>13 && pos.thick>need*0.55)){
+          const onDark = fill && lum(fill)<0.62;
+          qLabel(pos.cx, pos.cy+3.4, txt, {color:onDark?'#FFFFFF':C.ink2, weight:700, prio:1, force:true});
+        }
+      } else if(horiz && pos){
+        qLabel(pos.end+5, pos.cy+3.4, f(v), {anchor:'start', color:col, prio:1});
+      } else if(pos){
+        qLabel(pos.cx, pos.top-4, f(v), {color:col, prio:2});
       }
     }
   });
@@ -952,8 +977,8 @@ function drawControls(){
     if(show) {
       sr.innerHTML = `<label>Last-mile source ${info('The same fulfillment deliveries are recorded in two systems. Switching moves BOTH the cost and the sales together, so cost-to-sales is never mixed across sources. '+SRC_TIP.PNL+'  //  '+SRC_TIP.LMD)}</label>
         <div class="seg" id="segSrc">
-          <button data-r="PNL" class="${S.src==='PNL'?'on':''}" data-tip="${esc0(SRC_TIP.PNL)}">FC P&L</button>
-          <button data-r="LMD" class="${S.src==='LMD'?'on':''}" data-tip="${esc0(SRC_TIP.LMD)}">LMD file</button>
+          <button data-r="PNL" class="${S.src==='PNL'?'on':''}" data-tip="${esc0(SRC_TIP.PNL)}">AO</button>
+          <button data-r="LMD" class="${S.src==='LMD'?'on':''}" data-tip="${esc0(SRC_TIP.LMD)}">RMS</button>
         </div>`;
       document.querySelectorAll('#segSrc button').forEach(b=>{ b.onclick=()=>{ S.src=b.dataset.r; render(); }; });
     }
@@ -1107,11 +1132,11 @@ function pgSummary(el){
     ${segCard('B2C · Last-Mile Delivery', lmUse, lmSeg, ' '+badge('FC + Store + Local','The whole delivery operation from LMD Cost Data.xlsb — row “Cost (Store+FC+Local)”. This is what Total SCM counts. The FC P&L “− Last mile” line is a different view of the FC portion only and is deliberately excluded from the total so nothing is counted twice.'))}
   </div>
   <div class="card" style="margin-top:14px"><h4>Supporting facts — ${modeLbl()}</h4>${tk.map(t=>`<div class="tk"><div class="dot"></div><div>${t}</div></div>`).join('')}</div>
-  <div class="section-h"><h5>Cost trend — 18 months</h5><div class="ln"></div><span class="mini">stacked by segment · labels = monthly total (MB) · dashed = period average · click a segment to open its page</span></div>
+  <div class="section-h"><h5>Cost trend — 18 months</h5><div class="ln"></div><span class="mini">the four segments stacked = Total SCM · labels = monthly total (MB) · dashed = period average · click a segment to open its page</span></div>
   <div class="card">${chBox('chTrend',310)}</div>
   <div class="grid g2e" style="margin-top:14px">
     <div class="card">${chBox('chMoM',280,`${S.mode==='M'?(i>0?label(M[i-1])+' vs ':'')+label(S.month):'YTD vs same period LY'} — by segment (MB)`)}<div class="note">Grey = previous period · color = current. Click a bar to open that segment; click a legend key to hide it.</div></div>
-    <div class="card">${chBox('chYoY',280,`Same ${S.mode==='M'?'month':'period'} last year — B2B segments (MB)`)}<div class="note">Grey = last year · teal = current. B2C YoY available from 2027 (B2C data starts Jan-2026).</div></div>
+    <div class="card">${chBox('chYoY',280,`Same ${S.mode==='M'?'month':'period'} last year — all segments (MB)`)}<div class="note">Pale = last year · solid = current. FC Operation and Last-Mile show 0 for last year because B2C data starts January 2026.</div></div>
   </div>`;
 
   const totSl = sl(totArr).filter(v=>v);
@@ -1120,11 +1145,13 @@ function pgSummary(el){
     {label:'Distribution Center',data:sl(SEG.b2bWH),backgroundColor:SEGCOL.dcop,stack:'s',drill:"go('dc')"},
     {label:'Mid-Mile',data:sl(SEG.midMile),backgroundColor:SEGCOL.mm,stack:'s',drill:"go('mm')"},
     {label:'FC Operation',data:sl(SEG.fcOp),backgroundColor:SEGCOL.fcop,stack:'s',drill:"go('fc')"},
+    {label:'Last-Mile',data:sl(SEG.lastMile),backgroundColor:SEGCOL.lm,stack:'s',drill:"go('lm')"},
   ]},options:{...padT,plugins:{stackTotals:dlMB0,avg:{value:totAvg,label:'avg '+(totAvg!=null?fMB(totAvg):'')+' MB'}},scales:{x:{...gridX,stacked:true},y:{...gridY,stacked:true,title:{display:true,text:'MB'}}}}});
 
-  const segNames=['Distribution Center','Mid-Mile','FC Operation'];
-  const segArrs=[SEG.b2bWH,SEG.midMile,SEG.fcOp];
-  const segGo=i=>["go('dc')","go('mm')","go('fc')"][i];
+  /* all four segments — the same scope as Total SCM */
+  const segNames=['Distribution Center','Mid-Mile','FC Operation','Last-Mile'];
+  const segArrs=[SEG.b2bWH,SEG.midMile,SEG.fcOp,SEG.lastMile];
+  const segGo=i=>["go('dc')","go('mm')","go('fc')","go('lm')"][i];
   const prevI = S.mode==='M'? i-1 : -1;
   mkChart('chMoM',{type:'bar',data:{labels:segNames,datasets:[
     {label:S.mode==='M'?(prevI>=0?label(M[prevI]):'no prior month'):'YTD LY',data:segArrs.map(a=>pPrev(a)||0),backgroundColor:C.pale,borderRadius:4,dl:dlMB0,drill:segGo},
@@ -1133,9 +1160,11 @@ function pgSummary(el){
 
   const lyW = S.mode==='M'? pYoY(SEG.b2bWH) : pPrev(SEG.b2bWH);
   const lyM = S.mode==='M'? pYoY(SEG.midMile) : pPrev(SEG.midMile);
-  mkChart('chYoY',{type:'bar',data:{labels:['Distribution Center','Mid-Mile'],datasets:[
-    {label:'Last year',data:[lyW||0, lyM||0],backgroundColor:C.paleTeal,borderRadius:4,dl:dlMB0,drill:segGo},
-    {label:'Current',data:[pSum(SEG.b2bWH),pSum(SEG.midMile)],backgroundColor:C.teal,borderRadius:4,dl:dlMB0,drill:segGo},
+  /* all four segments — where last year has no data (B2C starts 2026) the bar is 0 */
+  const lyOf = a => (S.mode==='M'? pYoY(a) : pPrev(a)) || 0;
+  mkChart('chYoY',{type:'bar',data:{labels:segNames,datasets:[
+    {label:'Last year',data:segArrs.map(lyOf),backgroundColor:C.paleTeal,borderRadius:4,dl:dlMB0,drill:segGo},
+    {label:'Current',data:segArrs.map(a=>pSum(a)),backgroundColor:C.teal,borderRadius:4,dl:dlMB0,drill:segGo},
   ]},options:{...padT,scales:{x:gridX,y:{...gridY,title:{display:true,text:'MB'}}}}});
 }
 
@@ -1170,20 +1199,25 @@ function pgUnit(el){
   });
 
   el.innerHTML = `
-  <div class="section-h" style="margin-top:0"><h5>B2B — Distribution Center & Mid-Mile unit costs</h5><div class="ln"></div><span class="mini">${modeLbl()}</span></div>
+  <div class="section-h" style="margin-top:0">
+    <h5><span class="swatch" style="background:${TEMP_COLOR.Dry}"></span>DRY — unit costs</h5><div class="ln"></div>
+    <span class="mini">${modeLbl()} · cases are the volume driver</span></div>
   <div class="grid cards4">
-    ${uCard('Dry DC — THB / Case', dryWH, dryIn,'THB/Case')}
-    ${uCard('Fresh DC — THB / Kg', freshWH, freshKg,'THB/Kg',2,' '+BADGES.perKg)}
-    ${uCard('Mid-Mile — THB / Trip (Dry)', mmC, trips,'THB/Trip',0)}
-    ${uCard('Mid-Mile — THB / Case (Dry)', mmC, outC,'THB/Case')}
+    ${uCard('Dry · DC cost per case', dryWH, dryIn,'THB/Case')}
+    ${uCard('Dry · All-in per case (DC + Mid-Mile)', dryGrand, dryIn,'THB/Case')}
+    ${uCard('Dry · Mid-Mile per trip', mmC, trips,'THB/Trip',0)}
+    ${uCard('Dry · Mid-Mile per case', mmC, outC,'THB/Case')}
   </div>
-  <div class="grid cards4" style="margin-top:14px">
-    ${uCard('B2B Dry all-in — THB / Case (incl. Mid-Mile)', dryGrand, dryIn,'THB/Case')}
-    ${uCard('B2B Fresh all-in — THB / Kg (incl. Mid-Mile)', freshGrand, freshKg,'THB/Kg')}
-    ${uCard('Fresh Mid-Mile — THB / Kg', dcRaw('Fresh','transport'), freshKg,'THB/Kg')}
-    ${kpi({title:'Dry Mid-Mile — Case / Trip',val:fmt(unitNow(outC,trips),0),unit:'case/trip',
+  <div class="section-h">
+    <h5><span class="swatch" style="background:${TEMP_COLOR.Fresh}"></span>FRESH — unit costs</h5><div class="ln"></div>
+    <span class="mini">${modeLbl()} · kilograms are the volume driver</span></div>
+  <div class="grid cards4">
+    ${uCard('Fresh · DC cost per kg', freshWH, freshKg,'THB/Kg',2,' '+BADGES.perKg)}
+    ${uCard('Fresh · All-in per kg (DC + Mid-Mile)', freshGrand, freshKg,'THB/Kg')}
+    ${uCard('Fresh · Mid-Mile per kg', dcRaw('Fresh','transport'), freshKg,'THB/Kg')}
+    ${kpi({title:'Dry · Cases per trip',val:fmt(unitNow(outC,trips),0),unit:'case/trip',
       chips:[chip(unitNow(outC,trips),unitPrev(outC,trips),cmpLbl(),true),chip(unitNow(outC,trips),unitYoY(outC,trips),'YoY',true)],
-      sub:'outbound cases carried per trip'})}
+      sub:'truck utilisation — fresh trips are not tracked in the source file'})}
   </div>
   <div class="grid g2e" style="margin-top:14px">
     <div class="card">${chBox('chUDry',260,'Dry unit cost trend (THB/Case)')}</div>
@@ -1590,8 +1624,8 @@ function lmOverview(el, head){
      drill:i=>`S.lm='${'$'}{chTab[i]}';render()`.replace('${chTab[i]}',chTab[i])}]},
     options:{indexAxis:'y',...padR,plugins:{legend:{display:false}},scales:{x:{...gridY},y:gridX}}});
   mkChart('lmTruck',{type:'bar',data:{labels:lmLabels(),datasets:[
-    {label:'4W',data:lmSeries(LM.cost4W),backgroundColor:LM_TRUCK_COLOR['4W'],borderRadius:3},
-    {label:'2W',data:lmSeries(LM.cost2W),backgroundColor:LM_TRUCK_COLOR['2W'],borderRadius:3}]},
+    {label:'4W trucks',data:lmSeries(LM.cost4W),backgroundColor:LM_TRUCK_COLOR['4W'],borderRadius:3,dl:{dec:0}},
+    {label:'2W motorcycles',data:lmSeries(LM.cost2W),backgroundColor:LM_TRUCK_COLOR['2W'],borderRadius:3,dl:{dec:1}}]},
     options:{...padT,scales:{x:gridX,y:{...gridY,title:{display:true,text:'MB'}}}}});
   const trend=lmSeries(LM.cost), avg=trend.reduce((a,b)=>a+b,0)/(trend.length||1);
   mkChart('lmTrend',{type:'bar',data:{labels:lmLabels(),datasets:[
@@ -1762,7 +1796,8 @@ function lmPerf(el, head){
   <div class="grid g2e" style="margin-top:14px">
     <div class="card">${chBox('lmP5',260,'2W motorcycle cost and fleet')}
       <div class="note">Motorcycles carry a small share of spend but most of the Local channel; tracked separately so the 4W picture does not hide it.</div></div>
-    <div class="card">${chBox('lmP6',260,'Vehicle mix — share of fleet (%)')}</div>
+    <div class="card">${chBox('lmP6',260,'Vehicle mix — share of fleet (100% = all vehicles)')}
+      <div class="note">Each column always totals 100%. <span class="swatch" style="background:${LM_TRUCK_COLOR['4W']}"></span>4W trucks carry almost the whole fleet; the <span class="swatch" style="background:${LM_TRUCK_COLOR['2W']}"></span>2W sliver is the motorcycle share.</div></div>
   </div>
   <div class="card" style="margin-top:14px"><h4>Performance detail — last six reported months</h4>
     ${tbl(['Month','4W','2W','Helpers','Trip/Truck/Day','Drop/Truck/Day','KM/Truck/Day','Cost/Truck (THB)','Cost/Invoice (THB)'],rows)}
@@ -1790,7 +1825,7 @@ function lmPerf(el, head){
   mkChart('lmP6',{type:'bar',data:{labels:lmLabels(),datasets:[
     {label:'4W %',data:mix4,backgroundColor:LM_TRUCK_COLOR['4W'],stack:'s',dl:{dec:1}},
     {label:'2W %',data:mix2,backgroundColor:LM_TRUCK_COLOR['2W'],stack:'s',dl:{dec:1}}]},
-    options:{...padT,scales:{x:{...gridX,stacked:true},y:{...gridY,stacked:true,title:{display:true,text:'% of vehicles'}}}}});
+    options:{...padT,scales:{x:{...gridX,stacked:true},y:{...gridY,stacked:true,min:0,max:100,title:{display:true,text:'% of vehicles'}}}}});
 }
 
 /* =========================== AUTOMATED SELF-CHECK =========================== */
@@ -1922,33 +1957,53 @@ function pgGuide(el){
   ].map(r=>[`<span class="name">${r[0]}</span>`,r[1],r[2],r[3],r[4]==='down'?'▼ lower is better':(r[4]==='up'?'▲ higher is better':'—')]);
 
   el.innerHTML = `
-  <div class="grid g2e">
-    <div class="card"><div class="guide-h">① How to use this dashboard</div>
+  <div class="card" style="border-left:4px solid var(--accent);margin-bottom:14px">
+    <div class="guide-h">In one line</div>
+    <div class="mini" style="font-size:12.5px">This dashboard answers one question each month: <b>what did the supply chain cost, and what changed?</b>
+    Total SCM = <b>B2B</b> (Distribution Center incl. TFRS16 + Mid-Mile) + <b>B2C</b> (FC Operation + Last-Mile covering FC, Store and Local).</div>
+  </div>
+  <div class="grid g3">
+    <div class="card"><div class="guide-h">① Get around</div>
       <div class="mini">
-      <b>Month</b> selector (top right) sets the reporting month — every card and table follows it.<br>
-      <b>Monthly / YTD</b> toggle: Monthly compares vs previous month (MoM); YTD accumulates Jan→selected month and compares vs the same period last year.<br>
-      <b>Tabs</b>: B2B = Distribution Center + Mid-Mile Transport (source: DC Cost Data.xlsx). B2C = Fulfillment Center (source: FC Cost Data.xlsx; last-mile excluded for now).<br>
-      <b>Sub-pages</b>: on Distribution Center and Fulfillment Center pages, use the round selector chips to open each location.<br>
-      <b>Click to drill in</b>: on any chart tagged “click to drill in”, click a bar or segment to open that item — e.g. click the <b>Dry</b> bar to open the Dry distribution centers, a location bar to open that DC, or a segment on the Summary trend to open its page.<br>
-      <b>Hover</b> any bar for its exact value and % share; <b>click a legend key</b> to hide or restore that series; wide charts get a scroll slider so labels never overlap.<br>
-      Charts show trends for the full history regardless of the selected month.</div>
+      <b>Month</b> and <b>Monthly / YTD</b> sit top right and drive every card on the page.<br><br>
+      <b>Summary</b> — the whole picture, start here.<br>
+      <b>Unit Cost Analysis</b> — cost per case, kg, trip and order.<br>
+      <b>Distribution Center · Mid-Mile</b> — the B2B half.<br>
+      <b>Fulfillment Center · Last-Mile</b> — the B2C half.<br>
+      <b>Raw Data Export</b> — take any table to Excel.</div>
     </div>
-    <div class="card"><div class="guide-h">② How to read the signals</div>
-      <div class="mini">Cost signals — <b>lower is better</b>, so the good direction is down:<br>
-      <span class="chip dn">▼ −5.0% MoM</span> &nbsp;green = cost went <b>down</b> (good).<br>
-      <span class="chip up">▲ +5.0% MoM</span> &nbsp;red = cost went <b>up</b> (bad).<br>
-      <span class="chip na">n/a</span> &nbsp;grey = no comparison base (e.g. B2C started Jan-2026).<br>
-      For volume &amp; utilization metrics the logic flips (up = green = good).<br>
-      Chart colors are solid and distinct; the <b>grey bar is the past period</b>, the colored bar the current one; the <b>dashed line is the average</b>.<br>
-      <span class="badge">gold badge</span> = data caveat, safe to use (hover for detail). <span class="badge red">red badge</span> = source-data issue to fix with Finance.</div>
+    <div class="card"><div class="guide-h">② Read a number</div>
+      <div class="mini">
+      <span class="chip dn">▼ −5.0%</span> cost went <b>down</b> — good.<br>
+      <span class="chip up">▲ +5.0%</span> cost went <b>up</b> — worth a look.<br>
+      <span class="chip na">n/a</span> nothing to compare against yet.<br><br>
+      On volume and utilisation the logic flips: more cases per trip is good, so up is green.<br><br>
+      Pale bar = the period before · solid bar = now · dashed line = the average.</div>
+    </div>
+    <div class="card"><div class="guide-h">③ Dig deeper</div>
+      <div class="mini">
+      <b>Click a bar</b> on any chart marked “click to drill in” to open that item — a segment on the Summary trend opens its page, a location bar opens that site.<br><br>
+      <b>Hover</b> anything for the exact value and its share.<br>
+      <b>Hover a badge</b> <span class="badge">like this</span> for the note behind it — gold is a caveat that is safe to use, red needs Finance.<br><br>
+      Every line in <b>What to watch</b> is clickable.</div>
     </div>
   </div>
-  <div class="section-h"><h5>③ KPI &amp; indicator dictionary</h5><div class="ln"></div><span class="mini">search to find any KPI · <span id="kpiCount"></span></span></div>
+  <div class="card" style="margin-top:14px">
+    <div class="guide-h">Where the numbers come from</div>
+    <div class="mini">
+    <b>DC Cost Data.xlsx</b> → Distribution Center and Mid-Mile &nbsp;·&nbsp;
+    <b>FC Cost Data.xlsx</b> → Fulfillment Center, sales from <b>AO</b> (Axtra Omni Channel) &nbsp;·&nbsp;
+    <b>LMD Cost Data.xlsb</b> → Last-Mile, sales from <b>RMS</b>.<br>
+    AO and RMS are different systems, so the same fulfilment deliveries do not tie exactly between them. Ratios are never mixed across the two — each page states its source, and Unit Cost Analysis lets you switch between them.<br>
+    Full cell-by-cell working is in <b>KPI Calculation.xlsx</b>; the definition of every KPI is in <b>KPI List_Enhanced.xlsx</b>.
+    The detail behind all of this is in sections ④–⑧ below.</div>
+  </div>
+  <div class="section-h"><h5>④ KPI &amp; indicator dictionary</h5><div class="ln"></div><span class="mini">search to find any KPI · <span id="kpiCount"></span></span></div>
   <div class="card"><input class="kpisearch" type="text" placeholder="Search KPIs — e.g. AOV, cost/order, TFRS16, average…" oninput="filterKPI(this.value)"><div id="kpiTable">${tbl(['KPI / Indicator','Meaning','How it is calculated','Unit','Good direction'],KPIDEF,null,true)}</div></div>
-  <div class="section-h"><h5>④ Source cross-check — ${label(S.month)}</h5><div class="ln"></div><span class="mini">every dashboard figure traced to its cell in the source files</span></div>
+  <div class="section-h"><h5>⑤ Source cross-check — ${label(S.month)}</h5><div class="ln"></div><span class="mini">every dashboard figure traced to its cell in the source files</span></div>
   <div class="card">${tbl(['Dashboard metric','Source (file → sheet → row label)','Raw value','Transform','Dashboard value','Check'],rows,null,true)}
-    <div class="note">Rows are located by row LABEL (row numbers shown for reference). Full mapping: KPI List_Enhanced.xlsx → sheets 0–8.</div></div>
-  <div class="section-h"><h5>⑤ TFRS16 formula verification — ${label(S.month)}</h5><div class="ln"></div></div>
+    <div class="note">Rows are located by row LABEL (row numbers shown for reference). Full mapping: KPI List_Enhanced.xlsx (sheets 0–14) and KPI Calculation.xlsx.</div></div>
+  <div class="section-h"><h5>⑥ TFRS16 formula verification — ${label(S.month)}</h5><div class="ln"></div></div>
   <div class="card">
     <table class="tbl"><thead><tr><th>Sheet</th><th>Total WH cost (THB)</th><th>+ TFRS16 (THB)</th><th>+ Transportation (THB)</th><th>= Sum</th><th>“Grand Total” in file</th><th>Check</th></tr></thead>
     <tbody>${tf('Dry')}${tf('Fresh')}</tbody></table>
@@ -1959,7 +2014,7 @@ function pgGuide(el){
     • <b>B2B all-in unit cost = “Grand Total” ÷ volume</b> → TFRS16 (and mid-mile) <b>included</b>.<br>
     • FC side: TFRS16 rows exist in FC ledger sheets but the P&L “1.2 Total Cost” is the source of truth for FC totals.</div>
   </div>
-  <div class="card" style="margin-top:14px;border-left:4px solid var(--accent)"><div class="guide-h">⑥ Sales sources — read before comparing any ratio</div>
+  <div class="card" style="margin-top:14px;border-left:4px solid var(--accent)"><div class="guide-h">⑦ Sales sources — read before comparing any ratio</div>
     <div class="mini">
     <b>Fulfillment Center pages — sales, orders and AOV come from Axtra Omni Channel (AO).</b> Every FC ratio (cost-to-sale, cost per order, AOV) divides by AO sales.<br>
     <b>Last-Mile pages — sales come from RMS.</b> Every last-mile ratio (cost to sales, driver and helper cost to sales) divides by RMS sales.<br>
@@ -1967,15 +2022,15 @@ function pgGuide(el){
     Cost figures are unaffected: fulfillment operating cost comes from the FC P&amp;L ledger, last-mile cost from the last-mile workbook.
     Cards that depend on a sales source carry a <span class="badge">sales: AO</span> or <span class="badge">sales: RMS</span> signal — hover it for this note.</div>
   </div>
-  <div class="card" style="margin-top:14px"><div class="guide-h">⑦ Known data caveats (also badged in place)</div>
+  <div class="card" style="margin-top:14px"><div class="guide-h">⑧ Known data caveats (also badged in place)</div>
     <div class="mini">1. <b>FC406 Hat Yai</b>: P&L cost rows identical to FC405 for all 2026 months — pending Finance check.<br>
     2. <b>FC409 Rangsit</b>: no P&L block yet — cost taken from its ledger sheet (no sales/orders).<br>
     3. <b>FC403</b>: P&L vs ledger gap −0.76 MB (Jun-26); P&L used as source of truth.<br>
     4. <b>MKD1 / MKD2</b>: negative months possible (credit/allocation entries in source).<br>
     5. <b>Fresh units</b>: stored per Kg — multiply by 1,000 for THB/Ton.<br>
-    6. <b>Last-Mile</b>: interim figures from FC P&L until the dedicated fleet data file is provided.</div>
+    6. <b>Last-Mile</b>: 2026 only — the LMD file starts in January 2026, so last-mile has no year-on-year comparison until 2027.</div>
   </div>
-  <div class="section-h"><h5>⑦ Automated calculation self-check</h5><div class="ln"></div><span class="mini">every identity re-computed live in your browser · all ${MONTHS.length} months with data</span></div>
+  <div class="section-h"><h5>⑨ Automated calculation self-check</h5><div class="ln"></div><span class="mini">every identity re-computed live in your browser · all ${MONTHS.length} months with data</span></div>
   <div class="card">
     <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:12px">
       <div class="kv" style="font-size:28px"><b>${SC.pass}</b> <span class="unit">checks passed</span></div>
