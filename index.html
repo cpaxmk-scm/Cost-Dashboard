@@ -204,7 +204,8 @@ footer{padding:18px 28px;font-size:10.5px;color:var(--on-dark-3);border-top:1px 
 .gtop-r{text-align:right;flex:0 0 auto;padding-left:18px;border-left:1px solid rgba(255,255,255,.16)}
 .gtop-n{font-size:32px;font-weight:800;color:var(--accent);line-height:1}
 .gtop-u{font-size:10.5px;font-weight:700;color:#9DB4E0;margin-top:5px;letter-spacing:.04em}
-.card.step{position:relative;padding-top:22px}
+.card.step{position:relative;padding-top:22px;display:block}
+.readnum,.card.srccard{display:block}
 .step-n{position:absolute;top:-11px;left:18px;width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.14)}
 .step-h{font-size:13.5px;font-weight:800;color:var(--ink);margin-bottom:8px}
 .step-b{font-size:12px;line-height:1.72;color:var(--ink-2)}
@@ -965,7 +966,7 @@ const TITLES = {
   mm:['Mid-Mile Transport','DC-to-store transportation across all distribution centers'],
   fc:['Fulfillment Center — B2C','7 fulfillment centers (e-commerce operation)'],
   lm:['Last-Mile Delivery — B2C','Store, FC and Local delivery fleet: cost, labor, fleet and productivity'],
-  guide:['User Guide & Data Sources','How to read this dashboard, KPI definitions, and source cross-check'],
+  guide:['User Guide & Data Sources','How to use the dashboard, how to read a number, and where every figure comes from'],
   raw:['Raw Data Export','Pick a dataset and the columns you need, then download it as CSV'],
 };
 /* deep links used by "What to watch" — open a page with its selector preset */
@@ -1908,7 +1909,7 @@ function pgGuide(el){
     ['DC Operation Cost','Cost of running the 10 distribution centers','“Total Warehouse cost” + “Warehouse (TFRS16)” per DC sheet','MB','down'],
     ['Mid-Mile Cost','Transport from DC to stores','“Transportation Cost” row per DC sheet','MB','down'],
     ['FC Operation Cost','Cost of running the 7 fulfillment centers (e-commerce)','P&L “- Operation Cost” = Total Cost − Last-mile','MB','down'],
-    ['Last-Mile Cost','Delivery from FC to customer','EXCLUDED for now — FC last-mile data on hold; not added to any total','MB','—'],
+    ['Last-Mile Cost','Delivery to the customer — FC, Store and Local','LMD file “Cost (Store+FC+Local)”; the FC P&L last-mile line is excluded so FC delivery is counted once','MB','down'],
     ['Cost Mix %','Segment share of total','segment ÷ Total SCM','%','—'],
     ['MoM %','Change vs previous month','current ÷ previous − 1','%','down'],
     ['YoY %','Change vs same month last year','current ÷ same month LY − 1','%','down'],
@@ -1977,7 +1978,7 @@ function pgGuide(el){
     <div class="mini" style="margin-top:10px">On <b>volume and utilisation</b> the logic flips — more cases per trip is good, so up is green. In every chart: <b>pale bar</b> = the period before · <b>solid bar</b> = now · <b>dashed line</b> = the average.</div>
   </div>
 
-  <div class="card" style="margin-top:14px">
+  <div class="card srccard" style="margin-top:14px">
     <div class="guide-h">Where the numbers come from</div>
     <div class="srcrow">
       <div class="src"><div class="src-f">DC Cost Data.xlsx</div><div class="src-d">Distribution Center · Mid-Mile</div></div>
