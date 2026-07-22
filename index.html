@@ -76,6 +76,8 @@ select{appearance:none;background:var(--card);border:1px solid var(--line);borde
 .sub{font-size:11px;color:var(--ink-2);margin-top:6px}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .chip{font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:20px;display:inline-flex;align-items:center;gap:4px}
+.chip.clk{cursor:pointer;transition:filter .12s,box-shadow .12s}
+.chip.clk:hover{filter:brightness(.94);box-shadow:0 0 0 2px rgba(31,42,68,.12)}
 .chip.up{background:var(--red-soft);color:var(--red-dk)}
 .chip.dn{background:var(--green-soft);color:var(--green-dk)}
 .chip.na{background:var(--navy-soft);color:var(--ink-2);font-weight:700}
@@ -543,11 +545,23 @@ const fMB  = v => fmt(v,1);
 const fPct = v => v==null||!isFinite(v) ? 'n/a' : (v>0?'+':'')+ (v*100).toLocaleString('en-US',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
 /* delta chips: the ONLY place red/green appear — red = cost up (bad), green = cost down (good).
    invert=true for volume/utilization metrics where up = good. */
+/* A delta chip can jump to the period it is comparing against: click a MoM chip to
+   open the previous month, a YoY chip to open the same month last year. Works on every
+   page because every card builds its chips through chip(). Monthly mode only. */
+function chipNav(lbl){
+  if(S.mode!=='M') return null;
+  const i=mi(S.month);
+  if(lbl==='MoM' && i>0   && MONTHS.indexOf(M[i-1])>=0)  return {m:M[i-1],  note:'previous month'};
+  if(lbl==='YoY' && i>=12 && MONTHS.indexOf(M[i-12])>=0) return {m:M[i-12], note:'same month last year'};
+  return null;
+}
 function chip(cur, base, lbl, invert=false){
   if(base==null || !base || cur==null) return `<span class="chip na">${lbl}: n/a</span>`;
   const d=cur/base-1; const bad = invert ? d<0 : d>0;
   const cls = Math.abs(d)<1e-4 ? 'na' : (bad?'up':'dn');
   const ar  = Math.abs(d)<1e-4 ? '•' : (d>0?'▲':'▼');
+  const nav = chipNav(lbl);
+  if(nav) return `<span class="chip ${cls} clk" onclick="event.stopPropagation();setMonth('${nav.m}')" title="View ${label(nav.m)} — ${nav.note}">${ar} ${fPct(d)} ${lbl}</span>`;
   return `<span class="chip ${cls}">${ar} ${fPct(d)} ${lbl}</span>`;
 }
 /* ---------- signals: badge + hover explanation ----------
@@ -2001,6 +2015,7 @@ function pgGuide(el){
       <div class="step-h">Go deeper</div>
       <div class="step-b">
         <b>Click</b> a bar on any chart tagged “click to drill in” — it opens that DC, FC or segment.<br>
+        <b>Click a <span class="chip dn">▼ MoM</span> or <span class="chip up">▲ YoY</span> chip</b> to jump the whole page to that comparison period — MoM opens last month, YoY opens the same month last year.<br>
         <b>Hover</b> a bar for its exact value and share; hover a <span class="badge">badge</span> for the note behind it.<br>
         <b>Click</b> any line in <b>What to watch</b> to jump to the evidence.</div>
       <div class="step-t">${ICO.click} Most things on screen are clickable</div>
