@@ -89,6 +89,12 @@ select{appearance:none;background:var(--card);border:1px solid var(--line);borde
 .badge:hover,.badge:focus,.imark:hover,.imark:focus{filter:brightness(.92)}
 .tipbox{position:absolute;z-index:999;background:#111827;color:#F3F4F6;font-size:11.5px;line-height:1.55;
   padding:10px 12px;border-radius:9px;box-shadow:0 8px 26px rgba(17,24,39,.28);pointer-events:none;font-weight:500}
+/* rich chart hover card: header + big value + sub-line, with a series colour dot */
+.tipbox.tt{padding:9px 11px 10px;min-width:118px;max-width:270px;border:1px solid rgba(255,255,255,.08)}
+.tipbox.tt .tt-h{display:flex;align-items:center;gap:7px;font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#C3CAD9}
+.tipbox.tt .tt-dot{width:9px;height:9px;border-radius:3px;flex:0 0 auto;box-shadow:0 0 0 2px rgba(255,255,255,.12)}
+.tipbox.tt .tt-v{font-size:18px;font-weight:800;color:#fff;margin-top:4px;letter-spacing:-.3px;line-height:1.1}
+.tipbox.tt .tt-s{font-size:10.5px;color:#AAB2C4;margin-top:3px;font-weight:600}
 .badge.red{background:var(--red-soft);color:var(--red-dk)}
 .ok{color:var(--green);font-weight:800}
 .warn{color:var(--gold);font-weight:800}
@@ -269,7 +275,7 @@ footer{padding:18px 28px;font-size:10.5px;color:var(--on-dark-3);border-top:1px 
 <aside>
   <div class="logo"><div class="mk"><div class="sq"><svg width="19" height="19" viewBox="0 0 24 24" fill="#fff"><path d="M4 20V10h3.5v10H4zm6.25 0V4h3.5v16h-3.5zm6.25 0v-7H20v7h-3.5z"/></svg></div><h1>SCM COST<span>Dashboard</span></h1></div></div>
   <nav id="nav"></nav>
-  <div class="sfoot">Data: Jan-2025 → June 2026<br>B2C data from Jan-2026<br>Generated 2026-07-22 · v11.0 offline · interactive</div>
+  <div class="sfoot">Data: Jan-2025 → June 2026<br>B2C data from Jan-2026<br>Generated 2026-07-23 · v11.0 offline · interactive</div>
 </aside>
 <main>
   <div id="topbar">
@@ -577,19 +583,42 @@ function tipInit(){
     if(TIPBOX || typeof document==='undefined' || !document.body || !document.createElement) return;
     TIPBOX=document.createElement('div'); TIPBOX.className='tipbox'; TIPBOX.style.display='none';
     document.body.appendChild(TIPBOX);
-    const show=(t)=>{ const tip=t.getAttribute('data-tip'); if(!tip) return;
-      TIPBOX.textContent=tip; TIPBOX.style.display='block';
-      const r=t.getBoundingClientRect(), w=Math.min(340, window.innerWidth-24);
-      TIPBOX.style.width=w+'px';
+    /* rich chart card floats next to the cursor and flips to stay on-screen */
+    const atCursor=(x,y)=>{ const w=TIPBOX.offsetWidth||160, h=TIPBOX.offsetHeight||44;
+      let L=x+15, T=y+18;
+      if(L+w > window.innerWidth-8)  L=x-w-15;
+      if(T+h > window.innerHeight-8) T=y-h-18;
+      TIPBOX.style.left=Math.max(8,L)+window.scrollX+'px';
+      TIPBOX.style.top =Math.max(8,T)+window.scrollY+'px'; };
+    /* plain text tip (badges / info markers) sits just below its element */
+    const belowEl=(el)=>{ const r=el.getBoundingClientRect(), w=Math.min(340, window.innerWidth-24);
+      TIPBOX.style.maxWidth=w+'px';
       TIPBOX.style.left=Math.max(10, Math.min(window.innerWidth-w-10, r.left+window.scrollX))+'px';
       TIPBOX.style.top=(r.bottom+window.scrollY+8)+'px'; };
+    const show=(el,e)=>{
+      const rich=el.getAttribute('data-tt');
+      if(rich!=null){
+        const val=el.getAttribute('data-tv')||'', sub=el.getAttribute('data-ts')||'', col=el.getAttribute('data-tc')||'';
+        TIPBOX.className='tipbox tt'; TIPBOX.style.maxWidth='';
+        TIPBOX.innerHTML=`<div class="tt-h">${col?`<span class="tt-dot" style="background:${col}"></span>`:''}${esc(rich)}</div>`
+          +(val?`<div class="tt-v">${esc(val)}</div>`:'')+(sub?`<div class="tt-s">${esc(sub)}</div>`:'');
+        TIPBOX.style.display='block';
+        if(e && e.clientX!=null) atCursor(e.clientX,e.clientY); else belowEl(el);
+      } else {
+        const tp=el.getAttribute('data-tip'); if(!tp) return;
+        TIPBOX.className='tipbox'; TIPBOX.textContent=tp; TIPBOX.style.display='block'; belowEl(el);
+      }
+    };
     const hide=()=>{ if(TIPBOX) TIPBOX.style.display='none'; };
-    const find=e=>{ let n=e.target; while(n && n.getAttribute){ if(n.getAttribute('data-tip')) return n; n=n.parentElement; } return null; };
-    document.addEventListener('mouseover', e=>{ const t=find(e); if(t) show(t); });
-    document.addEventListener('mouseout',  e=>{ if(find(e)) hide(); });
-    document.addEventListener('focusin',   e=>{ const t=find(e); if(t) show(t); });
-    document.addEventListener('focusout',  hide);
-    document.addEventListener('click',     e=>{ const t=find(e); t? show(t) : hide(); });
+    const find=n=>{ while(n && n.getAttribute){ if(n.getAttribute('data-tt')!=null || n.getAttribute('data-tip')) return n; n=n.parentElement; } return null; };
+    document.addEventListener('mouseover', e=>{ const el=find(e.target); if(el) show(el,e); });
+    document.addEventListener('mousemove', e=>{ if(!TIPBOX || TIPBOX.style.display==='none') return;
+      const el=find(e.target); if(!el){ hide(); return; }
+      if(el.getAttribute('data-tt')!=null) atCursor(e.clientX,e.clientY); });
+    document.addEventListener('mouseout', e=>{ if(!find(e.relatedTarget)) hide(); });
+    document.addEventListener('focusin',  e=>{ const el=find(e.target); if(el) show(el,null); });
+    document.addEventListener('focusout', hide);
+    document.addEventListener('click',    e=>{ const el=find(e.target); if(el && el.getAttribute('data-tip')) show(el,null); });
     window.addEventListener('scroll', hide, {passive:true});
   }catch(_){ /* headless: no DOM — tooltips are a browser-only nicety */ }
 }
@@ -634,7 +663,13 @@ const tickFmt = (v, span) => span>=200? fmt(v,0) : (span>=20? fmt(v,0) : (span>=
 function txt(x,y,s,{size=9.5,color=C.ink2,anchor='middle',weight=600,base='auto'}={}){
   return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${size}" fill="${color}" text-anchor="${anchor}" font-weight="${weight}" dominant-baseline="${base}" font-family="${FONT_STACK}">${esc(s)}</text>`;
 }
-const tip = s => `<title>${esc(s)}</title>`;
+/* Rich hover card: returns ATTRIBUTES placed on a chart shape (rect/circle/path).
+   tipInit() reads them and renders a small floating card that follows the cursor —
+   header (with a colour dot for the series), a big value, and a muted sub-line. */
+function tip(name, val, sub, color){
+  const a = s => esc0(String(s==null ? '' : s));
+  return ` data-tt="${a(name)}" data-tv="${a(val)}"${sub?` data-ts="${a(sub)}"`:''}${color?` data-tc="${a(color)}"`:''}`;
+}
 const jsq = s => String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");   /* safe single-quoted onclick arg */
 
 function legendRow(dss, W, id, hid){
@@ -747,17 +782,20 @@ function renderAxisChart(cfg, W, H, id){
       const dr = d.drill ? (typeof d.drill==='function' ? d.drill(i) : (Array.isArray(d.drill)? d.drill[i] : d.drill)) : null;
       const gO = dr ? `<g class="drill" onclick="${dr}">` : `<g>`;   /* drill-down: pointer + onclick when a target is defined */
       let denom=0; if(stacked){ barDss.forEach(dd=>{ const vv=nz(dd.data[i]); if(vv!=null) denom+=Math.abs(vv); }); } else { d.data.forEach(vv=>{ vv=nz(vv); if(vv!=null) denom+=Math.abs(vv); }); }
-      const shTxt = denom>0? ` · ${(Math.abs(v)/denom*100).toFixed(1)}% share` : '';
-      const t=tip(`${d.label? d.label+' — ':''}${labels[i]}: ${fmt(v, d.dec!=null?d.dec:1)}${d.suffix||''}${shTxt}${dr?' · click to open':''}`);
+      const shPct = denom>0? ` · ${(Math.abs(v)/denom*100).toFixed(1)}% share` : '';
+      const t=tip(d.label || labels[i],
+        fmt(v, d.dec!=null?d.dec:1)+(d.suffix||''),
+        [d.label? labels[i] : '', (shPct? shPct.replace(/^ · /,'') : ''), (dr?'click to open ›':'')].filter(Boolean).join(' · '),
+        fillOf(i));
       if(horiz){
         const y = bandPos(i) - bw/2;
         const x0=sx(a), x1=sx(b);
-        out.push(`${gO}<rect x="${Math.min(x0,x1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.abs(x1-x0).toFixed(1)}" height="${bw.toFixed(1)}" rx="2.5" fill="${fillOf(i)}" stroke="${d.borderColor||'none'}" stroke-width="${d.borderColor?1:0}">${t}</rect></g>`);
+        out.push(`${gO}<rect x="${Math.min(x0,x1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.abs(x1-x0).toFixed(1)}" height="${bw.toFixed(1)}" rx="2.5" fill="${fillOf(i)}" stroke="${d.borderColor||'none'}" stroke-width="${d.borderColor?1:0}"${t}></rect></g>`);
         BARPOS[gi][i] = {cx:(x0+x1)/2, cy:bandPos(i), end:Math.max(x0,x1), span:Math.abs(x1-x0), thick:bw};
       } else {
         const x = bandPos(i) - (stacked? bw/2 : bw*groups/2 - gi*bw);
         const y0=sy(a), y1=sy(b);
-        out.push(`${gO}<rect x="${x.toFixed(1)}" y="${Math.min(y0,y1).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(Math.abs(y0-y1),0.8).toFixed(1)}" rx="2" fill="${fillOf(i)}" stroke="${d.borderColor||'none'}" stroke-width="${d.borderColor?1:0}">${t}</rect></g>`);
+        out.push(`${gO}<rect x="${x.toFixed(1)}" y="${Math.min(y0,y1).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(Math.abs(y0-y1),0.8).toFixed(1)}" rx="2" fill="${fillOf(i)}" stroke="${d.borderColor||'none'}" stroke-width="${d.borderColor?1:0}"${t}></rect></g>`);
         BARPOS[gi][i] = {cx:x+bw/2, cy:(y0+y1)/2, top:Math.min(y0,y1), span:Math.abs(y0-y1), thick:bw};
       }
     }
@@ -820,7 +858,7 @@ function renderAxisChart(cfg, W, H, id){
       pts.push({x,y,v,i});
     }
     out.push(`<path d="${path}" fill="none" stroke="${d.borderColor||C.navy}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`);
-    pts.forEach(p=> out.push(`<g><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.4" fill="${d.borderColor||C.navy}">${tip(`${d.label? d.label+' — ':''}${labels[p.i]}: ${fmt(p.v, d.dec!=null?d.dec:1)}${d.suffix||''}`)}</circle></g>`));
+    pts.forEach(p=> out.push(`<g><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.4" fill="${d.borderColor||C.navy}"${tip(d.label||labels[p.i], fmt(p.v, d.dec!=null?d.dec:1)+(d.suffix||''), d.label? labels[p.i] : '', d.borderColor||C.navy)}></circle></g>`));
   });
 
   /* value labels (dl) — queued, then collision-resolved */
@@ -888,7 +926,7 @@ function renderDoughnut(cfg, W, H, id){
     const col=Array.isArray(d.backgroundColor)? d.backgroundColor[i] : d.backgroundColor;
     const dr = d.drill ? (typeof d.drill==='function' ? d.drill(i) : (Array.isArray(d.drill)? d.drill[i] : d.drill)) : null;
     const gO = dr ? `<g class="drill" onclick="${dr}">` : `<g>`;
-    out.push(`${gO}<path d="M${x0.toFixed(1)} ${y0.toFixed(1)} A${R} ${R} 0 ${laf} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)} A${rin} ${rin} 0 ${laf} 0 ${x3.toFixed(1)} ${y3.toFixed(1)} Z" fill="${col}">${tip(`${labels[i]}: ${fmt(raw[i],1)} (${(frac*100).toFixed(1)}%)${dr?' · click to open':''}`)}</path></g>`);
+    out.push(`${gO}<path d="M${x0.toFixed(1)} ${y0.toFixed(1)} A${R} ${R} 0 ${laf} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)} A${rin} ${rin} 0 ${laf} 0 ${x3.toFixed(1)} ${y3.toFixed(1)} Z" fill="${col}"${tip(labels[i], fmt(raw[i],1)+(cfg.data.suffix||''), (frac*100).toFixed(1)+'% of total'+(dr?' · click to open ›':''), col)}></path></g>`);
     if(frac>=0.07){ const am=(a0+a1)/2, rm=(R+rin)/2;
       out.push(txt(cx+rm*Math.cos(am), cy+rm*Math.sin(am)+3, (frac*100).toFixed(0)+'%', {color:'#fff', weight:800, size:10}));
     }
