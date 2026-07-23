@@ -189,6 +189,7 @@ select{appearance:none;background:var(--card);border:1px solid var(--line);borde
 .actionclear{display:flex;gap:10px;align-items:center;font-size:12.5px;color:var(--green-dk);font-weight:600;padding:6px 2px}
 .actionclear svg{color:var(--green)}
 .watch .wtx{flex:1;font-size:12.5px;line-height:1.55;color:var(--ink)}
+.watch .wsub{display:block;font-size:11px;line-height:1.5;color:var(--ink-3);margin-top:3px;font-weight:500}
 .watch .wgo{font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--accent);white-space:nowrap;margin-top:2px}
 .tk .dot{min-width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:6px}
 .tk .dot.up{background:var(--red)}
@@ -283,7 +284,7 @@ footer{padding:18px 28px;font-size:10.5px;color:var(--on-dark-3);border-top:1px 
     <div class="spacer"></div>
     <div class="ctl" id="ctlSrc"></div>
     <div class="ctl" id="ctlScope"></div>
-    <div class="ctl" id="ctlMonth"><label>Month</label><select id="selMonth"></select></div>
+    <div class="ctl" id="ctlMonth"><label>Period</label><select id="selYear"></select><select id="selMonth"></select></div>
     <div class="ctl"><div class="seg" id="segMode"><button data-m="M" class="on">Monthly</button><button data-m="Y">YTD</button></div></div>
     <div class="ctl"><button id="btnReset" class="btn" title="Reset month, mode, source and drill-downs to default"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Reset</button></div>
   </div>
@@ -1087,8 +1088,18 @@ function drawControls(){
   if(mwrap) mwrap.style.display = NO_MONTH.indexOf(S.page)>=0 ? 'none' : '';
   const mode=document.getElementById('segMode');
   if(mode && mode.parentElement) mode.parentElement.style.display = NO_MONTH.indexOf(S.page)>=0 ? 'none' : '';
+  /* Period filter = a Year selector + a Month selector. Choosing a year keeps the same
+     month number when that month exists, otherwise jumps to the latest month in the year. */
+  const MONTH_NM=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const curY=S.month.split('-')[0];
+  const ySel=document.getElementById('selYear');
+  if(ySel){
+    ySel.innerHTML=[...new Set(MONTHS.map(m=>m.split('-')[0]))].map(y=>`<option value="${y}" ${y===curY?'selected':''}>${y}</option>`).join('');
+    ySel.onchange=e=>{ const y=e.target.value, want=y+'-'+S.month.split('-')[1], inY=MONTHS.filter(m=>m.startsWith(y));
+      S.month = MONTHS.indexOf(want)>=0 ? want : inY[inY.length-1]; render(); };
+  }
   const sel=document.getElementById('selMonth');
-  sel.innerHTML = MONTHS.map(m=>`<option value="${m}" ${m===S.month?'selected':''}>${label(m)}</option>`).join('');
+  sel.innerHTML = MONTHS.filter(m=>m.startsWith(curY)).map(m=>`<option value="${m}" ${m===S.month?'selected':''}>${MONTH_NM[+m.split('-')[1]-1]}</option>`).join('');
   sel.onchange = e=>{ S.month=e.target.value; render(); };
   const rb=document.getElementById('btnReset');
   if(rb){ rb.onclick=resetFilters; rb.classList.toggle('active', !filtersAtDefault()); }
@@ -1104,8 +1115,8 @@ function drawControls(){
     if(show) {
       sr.innerHTML = `<label>Last-mile source ${info('The same fulfillment deliveries are recorded in two systems. Switching moves BOTH the cost and the sales together, so cost-to-sales is never mixed across sources. '+SRC_TIP.PNL+'  //  '+SRC_TIP.LMD)}</label>
         <div class="seg" id="segSrc">
-          <button data-r="PNL" class="${S.src==='PNL'?'on':''}" data-tip="${esc0(SRC_TIP.PNL)}">AO</button>
-          <button data-r="LMD" class="${S.src==='LMD'?'on':''}" data-tip="${esc0(SRC_TIP.LMD)}">RMS</button>
+          <button data-r="PNL" class="${S.src==='PNL'?'on':''}" data-tip="${esc0(SRC_TIP.PNL)}">AO (FC)</button>
+          <button data-r="LMD" class="${S.src==='LMD'?'on':''}" data-tip="${esc0(SRC_TIP.LMD)}">RMS (LMD)</button>
         </div>`;
       document.querySelectorAll('#segSrc button').forEach(b=>{ b.onclick=()=>{ S.src=b.dataset.r; render(); }; });
     }
@@ -1140,9 +1151,18 @@ window.addEventListener('DOMContentLoaded', render);
 <script>
 /* ============================ PAGES ============================ */
 'use strict';
-const sl  = a => a.slice(0, LAST+1);
-const fsl = a => a.slice(FC_START, LAST+1);
-const FLBL = LBL.slice(FC_START);
+/* Every month-series chart shows a rolling window of at most 12 months that ENDS at
+   the selected month, so the last bar on the chart is always the month picked in the
+   top-right filter. winEnd = selected month; winStart = 11 months earlier (clamped). */
+const WIN = 12;
+const winEnd   = () => mi(S.month);
+const winStart = () => Math.max(0, winEnd() - (WIN - 1));
+const sl   = a => a.slice(winStart(), winEnd() + 1);
+const wLBL = () => LBL.slice(winStart(), winEnd() + 1);
+/* FC data starts at FC_START, so its window is clamped there */
+const fWinStart = () => Math.max(FC_START, winEnd() - (WIN - 1));
+const fsl  = a => a.slice(fWinStart(), winEnd() + 1);
+const fLBL = () => LBL.slice(fWinStart(), winEnd() + 1);
 
 /* unit-cost helpers (cost THB array, volume array) */
 function unitNow(cost,vol){ const c=pSum(cost), v=pSum(vol); return v? c/v : null; }
@@ -1197,48 +1217,79 @@ function pgSummary(el){
     .sort((a,b)=>b.d-a.d);
   const up=movers.filter(m=>m.d>0.01), dn=movers.filter(m=>m.d<-0.01);
   const PAGE_OF={'Distribution Center':['dc',null,'Distribution Center'],'Mid-Mile':['mm',null,'Mid-Mile'],'FC Operation':['fc','OVERVIEW','Fulfillment Center']};
-  /* Each item states a fact and links to the page that explains it. */
+  /* ---- root-cause helpers: dig one level under each flag so the reader sees WHY ---- */
+  const _sgn=x=>x>0?'+':'−';
+  const dcMoveTop=()=>DC_ORDER.map(sh=>({sh,d:pSum(dcWH(sh))-(pPrev(dcWH(sh))||0)})).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d))[0];
+  const fcMoveTop=()=>FC_ORDER.map(c=>({c,d:pSum(FC[c].op)-(pPrev(FC[c].op)||0)})).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d))[0];
+  function segDriver(name){
+    if(name==='Distribution Center'){const m=dcMoveTop(); return m&&Math.abs(m.d)>0.01? `led by ${m.sh} ${_sgn(m.d)}${fMB(Math.abs(m.d))} MB` : 'spread evenly across the distribution centers';}
+    if(name==='Mid-Mile'){const dry=pSum(dcMB('Dry','transport'))-(pPrev(dcMB('Dry','transport'))||0), fr=pSum(dcMB('Fresh','transport'))-(pPrev(dcMB('Fresh','transport'))||0); const [n,d]=Math.abs(dry)>=Math.abs(fr)?['Dry',dry]:['Fresh',fr]; return Math.abs(d)>0.01? `led by ${n} transport ${_sgn(d)}${fMB(Math.abs(d))} MB` : 'Dry and Fresh transport both steady';}
+    if(name==='FC Operation'){const m=fcMoveTop(); return m&&Math.abs(m.d)>0.01? `led by ${FC_SHORT[m.c]} ${_sgn(m.d)}${fMB(Math.abs(m.d))} MB` : 'spread across the fulfillment centers';}
+    return '';
+  }
+  const dcTopSection=sh=>{const s=DC_SECS.map(([k,n])=>({n,v:pSum(dcMB(sh,k))})).sort((a,b)=>b.v-a.v)[0]; return s? `${s.n.replace(/ \(.*/,'')} is its largest cost at ${fMB(s.v)} MB` : '';};
+
+  /* Each item states a fact, a root cause, and links to the page that explains it. */
   const watch=[];
+  const topMover=movers.slice().sort((a,b)=>Math.abs(b.d)-Math.abs(a.d))[0];
   watch.push({dir:(dTot==null?'':(dTot>0.0005?'up':(dTot<-0.0005?'dn':''))), go:['guide',null,'Sources'],
-    html:`<b>Total SCM ${fMB(tot)} MB</b>${dTot==null?'':` — <span class="${dTot>0?'pos':'neg'}">${fPct(dTot)} ${cmpLbl()}</span> vs ${fMB(prevTot)} MB`}. Last-mile counted here: FC + Store + Local (LMD file).`});
+    html:`<b>Total SCM ${fMB(tot)} MB</b>${dTot==null?'':` — <span class="${dTot>0?'pos':'neg'}">${fPct(dTot)} ${cmpLbl()}</span> vs ${fMB(prevTot)} MB`}. Last-mile counted here: FC + Store + Local (LMD file).`,
+    why:(dTot!=null && topMover && Math.abs(topMover.d)>0.01)? `Root cause: the biggest driver of the change is ${topMover.n} ${_sgn(topMover.d)}${fMB(Math.abs(topMover.d))} MB ${cmpLbl()}.` : 'The four segments were broadly flat versus the prior period.'});
   if(up.length) watch.push({dir:'up', go:PAGE_OF[up[0].n],
-    html:`Largest increase: <b>${up[0].n}</b> <span class="pos">+${fMB(up[0].d)} MB (${fPct(up[0].p)})</span>.`});
+    html:`Largest increase: <b>${up[0].n}</b> <span class="pos">+${fMB(up[0].d)} MB (${fPct(up[0].p)})</span>.`,
+    why:`Root cause: ${segDriver(up[0].n)}.`});
   if(dn.length) watch.push({dir:'dn', go:PAGE_OF[dn[0].n],
-    html:`Largest reduction: <b>${dn[0].n}</b> <span class="neg">−${fMB(Math.abs(dn[0].d))} MB (${fPct(dn[0].p)})</span>.`});
+    html:`Largest reduction: <b>${dn[0].n}</b> <span class="neg">−${fMB(Math.abs(dn[0].d))} MB (${fPct(dn[0].p)})</span>.`,
+    why:`Root cause: ${segDriver(dn[0].n)}.`});
   const dcVals=DC_ORDER.map(sh=>({sh,v:pSum(dcWH(sh)),dry:RAW.dc[sh].temp==='Dry'})); const dcAvg=dcVals.reduce((a,b)=>a+b.v,0)/(dcVals.length||1);
   const hiDC=dcVals.filter(x=>x.v>dcAvg).sort((a,b)=>b.v-a.v).slice(0,3);
   if(hiDC.length) watch.push({dir:'flag', go:['dc',hiDC[0].sh,hiDC[0].sh],
-    html:`Above the ${fMB(dcAvg)} MB average distribution-center cost: <b>${hiDC.map(x=>x.sh).join(', ')}</b>.`});
+    html:`Above the ${fMB(dcAvg)} MB average distribution-center cost: <b>${hiDC.map(x=>x.sh).join(', ')}</b>.`,
+    why:`Why: they run more volume than the other sites — ${dcTopSection(hiDC[0].sh)} at ${hiDC[0].sh}, which pulls it above the ${fMB(dcAvg)} MB average.`});
   /* unit-cost outlier: the DC whose unit cost moved most this period */
   const ucMove=DC_ORDER.map(sh=>{ const dry=RAW.dc[sh].temp==='Dry';
       const cost=dcRaw(sh,'total_wh'), vol=dry? dcRaw(sh,'inbound_case') : dcRaw(sh,'ton').map(t=>t*1000);
       const now=unitNow(cost,vol), prev=unitPrev(cost,vol);
       return {sh, dry, now, p:(prev&&now)? now/prev-1 : null}; })
     .filter(x=>x.p!=null && isFinite(x.p)).sort((a,b)=>Math.abs(b.p)-Math.abs(a.p))[0];
+  if(ucMove){ const _c=dcRaw(ucMove.sh,'total_wh'), _v=ucMove.dry? dcRaw(ucMove.sh,'inbound_case') : dcRaw(ucMove.sh,'ton').map(t=>t*1000);
+    ucMove.costP=pPrev(_c)? pSum(_c)/pPrev(_c)-1 : null; ucMove.volP=pPrev(_v)? pSum(_v)/pPrev(_v)-1 : null; }
+  const ucWhy = ucMove ? ((ucMove.costP!=null&&ucMove.volP!=null)
+      ? `Root cause: cost ${fPct(ucMove.costP)} while ${ucMove.dry?'cases':'kg'} handled ${fPct(ucMove.volP)} — unit cost = cost ÷ volume, so the two moving apart drives the rate.`
+      : `Root cause: unit cost = cost ÷ ${ucMove.dry?'inbound cases':'kg'}; the two moved apart this period.`) : '';
   if(ucMove) watch.push({dir:ucMove.p>0?'up':'dn', go:['dc',ucMove.sh,ucMove.sh],
-    html:`Unit cost moved most at <b>${ucMove.sh}</b>: ${fmt(ucMove.now,2)} ${ucMove.dry?'THB/case':'THB/kg'} <span class="${ucMove.p>0?'pos':'neg'}">(${fPct(ucMove.p)} ${cmpLbl()})</span>.`});
+    html:`Unit cost moved most at <b>${ucMove.sh}</b>: ${fmt(ucMove.now,2)} ${ucMove.dry?'THB/case':'THB/kg'} <span class="${ucMove.p>0?'pos':'neg'}">(${fPct(ucMove.p)} ${cmpLbl()})</span>.`,
+    why:ucWhy});
   const lmJ=lmIdx();
   if(LM.ok && lmJ>=0) watch.push({dir:'flag', go:['lm','OVERVIEW','Last-Mile'],
-    html:`Total last-mile delivery <b>${fMB(LM.cost[lmJ])} MB</b> in ${label(M[lmJ])} across Store, FC and Local${lmStale()?` — the last-mile workbook ends one month before the cost ledgers`:''}.`});
+    html:`Total last-mile delivery <b>${fMB(LM.cost[lmJ])} MB</b> in ${label(M[lmJ])} across Store, FC and Local${lmStale()?` — the last-mile workbook ends one month before the cost ledgers`:''}.`,
+    why:`Where it sits: FC ${fMB(LM.fc.cost[lmJ])} · Store ${fMB(LM.store.cost[lmJ])} · Local ${fMB(LM.local.cost[lmJ])} MB — Store is the largest slice of delivery cost.`});
   watch.push({dir:'flag', go:['guide',null,'Data quality'],
-    html:`Confirm with Finance: FC406 costs mirror FC405 · FC409 has no P&amp;L block · FC403 reconciliation gap −0.76 MB.`});
+    html:`Confirm with Finance: FC406 costs mirror FC405 · FC409 has no P&amp;L block · FC403 reconciliation gap −0.76 MB.`,
+    why:`Why: these are quirks of the source workbooks (a duplicated cost block, a centre with no P&amp;L, a small ledger-vs-P&amp;L gap), not dashboard errors — confirm before sign-off.`});
 
   /* ---- NEED TO TAKE ACTION — the red flags only: costs rising, cost outliers, and
-     figures that must be confirmed. Strictly factual; each row links to the evidence.
-     high = a cost increase or a data gap · med = a figure to review or confirm. ---- */
+     figures that must be confirmed. Strictly factual; each row states a root cause and
+     links to the evidence. high = a cost increase or a data gap · med = a figure to confirm. ---- */
   const acts=[];
   if(dTot!=null && dTot>0.0005) acts.push({sev:'high', go:['guide',null,'Sources'],
-    html:`<b>Total SCM rose to ${fMB(tot)} MB</b> — <span class="neg">+${fPct(dTot)} ${cmpLbl()}</span>, ${fMB(tot-prevTot)} MB above ${fMB(prevTot)} MB.`});
+    html:`<b>Total SCM rose to ${fMB(tot)} MB</b> — <span class="neg">+${fPct(dTot)} ${cmpLbl()}</span>, ${fMB(tot-prevTot)} MB above ${fMB(prevTot)} MB.`,
+    why:(topMover&&Math.abs(topMover.d)>0.01)? `Root cause: mostly ${topMover.n} ${_sgn(topMover.d)}${fMB(Math.abs(topMover.d))} MB — start there.` : ''});
   up.forEach(m=>acts.push({sev:'high', go:PAGE_OF[m.n],
-    html:`<b>${m.n}</b> cost up <span class="neg">+${fMB(m.d)} MB (${fPct(m.p)})</span> ${cmpLbl()}.`}));
+    html:`<b>${m.n}</b> cost up <span class="neg">+${fMB(m.d)} MB (${fPct(m.p)})</span> ${cmpLbl()}.`,
+    why:`Root cause: ${segDriver(m.n)}.`}));
   if(ucMove && ucMove.p>0.0005) acts.push({sev:'high', go:['dc',ucMove.sh,ucMove.sh],
-    html:`Unit cost rising at <b>${ucMove.sh}</b>: ${fmt(ucMove.now,2)} ${ucMove.dry?'THB/case':'THB/kg'} <span class="neg">(${fPct(ucMove.p)} ${cmpLbl()})</span>.`});
+    html:`Unit cost rising at <b>${ucMove.sh}</b>: ${fmt(ucMove.now,2)} ${ucMove.dry?'THB/case':'THB/kg'} <span class="neg">(${fPct(ucMove.p)} ${cmpLbl()})</span>.`,
+    why:ucWhy});
   if(lmMissing(i)) acts.push({sev:'high', go:['lm','OVERVIEW','Last-Mile'],
-    html:`<b>No last-mile data for ${label(S.month)}</b> — Total SCM here covers B2B + FC operation only.`});
+    html:`<b>No last-mile data for ${label(S.month)}</b> — Total SCM here covers B2B + FC operation only.`,
+    why:`Why: the LMD workbook has no row for ${label(S.month)} yet, so the B2C delivery portion is not in this total — treat the figure as partial.`});
   if(hiDC.length) acts.push({sev:'med', go:['dc',hiDC[0].sh,hiDC[0].sh],
-    html:`Above the ${fMB(dcAvg)} MB average distribution-center cost: <b>${hiDC.map(x=>x.sh).join(', ')}</b> — review the drivers.`});
+    html:`Above the ${fMB(dcAvg)} MB average distribution-center cost: <b>${hiDC.map(x=>x.sh).join(', ')}</b> — review the drivers.`,
+    why:`Why: ${dcTopSection(hiDC[0].sh)} at ${hiDC[0].sh} — check whether the volume it carries justifies the cost.`});
   acts.push({sev:'med', go:['guide',null,'Data quality'],
-    html:`Confirm with Finance: FC406 costs mirror FC405 · FC409 has no P&amp;L block · FC403 reconciliation gap −0.76 MB.`});
+    html:`Confirm with Finance: FC406 costs mirror FC405 · FC409 has no P&amp;L block · FC403 reconciliation gap −0.76 MB.`,
+    why:`Why: source-workbook quirks that need a Finance confirmation before this is signed off.`});
 
   const lmSeg=pSum(lmUse);
   const scopeNote = 'Last-mile = FC + Store + Local (LMD file); distribution-center cost includes TFRS16.'
@@ -1258,15 +1309,15 @@ function pgSummary(el){
       ${watch.map(w=>{ const g=w.go||['guide',null,'Open'];
         const arg = g[1]? ",'"+String(g[1]).replace(/'/g,'')+"'" : '';
         return `<button class="watch" onclick="goTo('${g[0]}'${arg})">
-          <span class="wdot ${w.dir}"></span><span class="wtx">${w.html}</span><span class="wgo">${g[2]||'Open'} ›</span></button>`;}).join('')}</div>
+          <span class="wdot ${w.dir}"></span><span class="wtx">${w.html}${w.why?`<span class="wsub">${w.why}</span>`:''}</span><span class="wgo">${g[2]||'Open'} ›</span></button>`;}).join('')}</div>
     ${segCard('B2C · FC Operation', SEG.fcOp, fco, ' '+BADGES.fc409)}
     ${segCard('B2C · Last-Mile Delivery', lmUse, lmSeg, ' '+badge('FC + Store + Local','The whole delivery operation from LMD Cost Data.xlsb — row “Cost (Store+FC+Local)”. This is what Total SCM counts. The FC P&L “− Last mile” line is a different view of the FC portion only and is deliberately excluded from the total so nothing is counted twice.'))}
   </div>
   <div class="card actioncard" style="margin-top:14px"><h4>⚠ Need to take action — ${modeLbl()} ${info('Only the red-flag items for this period: costs that rose, cost outliers, missing data, and figures to confirm with Finance. Click a row to open the evidence. If the list is empty, no cost increased and no data issue was found.')}</h4>
     ${acts.length? acts.map(a=>{ const arg=a.go[1]? ",'"+String(a.go[1]).replace(/'/g,'')+"'":'';
-      return `<button class="watch act ${a.sev}" onclick="goTo('${a.go[0]}'${arg})"><span class="wdot ${a.sev==='high'?'up':'flag'}"></span><span class="wtx">${a.html}</span><span class="wgo">${a.go[2]||'Open'} ›</span></button>`;}).join('')
+      return `<button class="watch act ${a.sev}" onclick="goTo('${a.go[0]}'${arg})"><span class="wdot ${a.sev==='high'?'up':'flag'}"></span><span class="wtx">${a.html}${a.why?`<span class="wsub">${a.why}</span>`:''}</span><span class="wgo">${a.go[2]||'Open'} ›</span></button>`;}).join('')
       : `<div class="actionclear"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Nothing needs action this period — no segment cost rose and no data issue was detected.</div>`}</div>
-  <div class="section-h"><h5>Cost trend — 18 months</h5><div class="ln"></div><span class="mini">the four segments stacked = Total SCM · labels = monthly total (MB) · dashed = period average · click any month’s segment to open that page set to that month</span></div>
+  <div class="section-h"><h5>Cost trend — 12 months to ${label(S.month)}</h5><div class="ln"></div><span class="mini">the four segments stacked = Total SCM · labels = monthly total (MB) · dashed = period average · click any month’s segment to open that page set to that month</span></div>
   <div class="card">${chBox('chTrend',310)}</div>
   <div class="grid g2e" style="margin-top:14px">
     <div class="card">${chBox('chMoM',280,`${S.mode==='M'?(i>0?label(M[i-1])+' vs ':'')+label(S.month):'YTD vs same period LY'} — by segment (MB)`)}<div class="note">Each segment carries its cost-trend colour · pale bar = previous period, solid = current. Click a bar to open that segment.</div></div>
@@ -1275,7 +1326,7 @@ function pgSummary(el){
 
   const totSl = sl(totArr).filter(v=>v);
   const totAvg = totSl.length? totSl.reduce((a,b)=>a+b,0)/totSl.length : null;
-  mkChart('chTrend',{type:'bar',data:{labels:LBL,datasets:[
+  mkChart('chTrend',{type:'bar',data:{labels:wLBL(),datasets:[
     {label:'Distribution Center',data:sl(SEG.b2bWH),backgroundColor:SEGCOL.dcop,stack:'s',drill:i=>`goMonth('dc','${MONTHS[i]}')`},
     {label:'Mid-Mile',data:sl(SEG.midMile),backgroundColor:SEGCOL.mm,stack:'s',drill:i=>`goMonth('mm','${MONTHS[i]}')`},
     {label:'FC Operation',data:sl(SEG.fcOp),backgroundColor:SEGCOL.fcop,stack:'s',drill:i=>`goMonth('fc','${MONTHS[i]}')`},
@@ -1377,11 +1428,11 @@ function pgUnit(el){
       <div class="note">Orders = average orders per day × days in the month (equals sales ÷ AOV). A center above the B2C average is dearer to serve than the average order.</div></div>
   </div>`;
 
-  mkChart('chUDry',{type:'line',data:{labels:LBL,datasets:[
+  mkChart('chUDry',{type:'line',data:{labels:wLBL(),datasets:[
     line({label:'DC only',data:sl(unitArr(dryWH,dryIn)),borderColor:C.gold,dec:2,dl:{...dl2,mode:'last'}}),
     line({label:'incl. Mid-Mile (B2B)',data:sl(unitArr(dryGrand,dryIn)),borderColor:C.navy,dec:2,dl:{...dl2,mode:'last'}}),
   ]},options:{...padR,scales:{x:gridX,y:{...gridY}}}});
-  mkChart('chUFresh',{type:'line',data:{labels:LBL,datasets:[
+  mkChart('chUFresh',{type:'line',data:{labels:wLBL(),datasets:[
     line({label:'DC only',data:sl(unitArr(freshWH,freshKg)),borderColor:C.gold,dec:2,dl:{...dl2,mode:'last'}}),
     line({label:'incl. Mid-Mile (B2B)',data:sl(unitArr(freshGrand,freshKg)),borderColor:C.teal,dec:2,dl:{...dl2,mode:'last'}}),
   ]},options:{...padR,scales:{x:gridX,y:{...gridY}}}});
@@ -1440,7 +1491,7 @@ function dcOverview(el, chipsRow){
       ['<b>Total (10 DCs)</b>',fMB(tot),'100%','–','–','',''])}
     <div class="note">DC operation cost only (incl. TFRS16). Unit cost = warehouse cost ÷ inbound cases (Dry) or ÷ kg (Fresh), excl. TFRS16 & Mid-Mile — matches “DC Cost/Case · DC Cost/Kg.” rows in the data file. Mid-Mile is a separate workbook and is shown on the Mid-Mile Transport page. CDC appears twice by design (Dry & Fresh operations). MKD1/MKD2 can show negative months (credit/allocation entries in the source file).</div>
   </div>`;
-  mkChart('chDCtrend',{type:'bar',data:{labels:LBL,datasets:[
+  mkChart('chDCtrend',{type:'bar',data:{labels:wLBL(),datasets:[
     {label:'Dry',data:sl(dcWH('Dry')),backgroundColor:TEMP_COLOR.Dry,stack:'s',borderRadius:3,drill:i=>`S.month='${MONTHS[i]}';S.dc='Dry';render()`},
     {label:'Fresh',data:sl(dcWH('Fresh')),backgroundColor:TEMP_COLOR.Fresh,stack:'s',borderRadius:3,drill:i=>`S.month='${MONTHS[i]}';S.dc='Fresh';render()`}]},
     options:{...padT,plugins:{stackTotals:dlMB0},scales:{x:{...gridX,stacked:true},y:{...gridY,stacked:true,title:{display:true,text:'MB'}}}}});
@@ -1488,13 +1539,13 @@ function dcDetail(el, chipsRow, sh){
      colours (SEC_COLOR) kept; a hairline white separator distinguishes touching bands. */
   const structSecs = DC_SECS.filter(([k])=>dcMB(sh,k).some(v=>Math.abs(v)>0.005))
     .sort((a,b)=>pSum(dcMB(sh,b[0]))-pSum(dcMB(sh,a[0])));
-  mkChart('chStruct',{type:'bar',data:{labels:LBL,datasets:structSecs.map(([k,n])=>({
+  mkChart('chStruct',{type:'bar',data:{labels:wLBL(),datasets:structSecs.map(([k,n])=>({
       label:n, data:sl(dcMB(sh,k)), backgroundColor:SEC_COLOR[k], stack:'s',
       borderColor:'#FFFFFF', borderWidth:0.6, drill:i=>`S.month='${MONTHS[i]}';render()`}))},
     options:{...padT,shareOf:'DC operation cost that month',plugins:{stackTotals:dlMB0},scales:{x:{...gridX,stacked:true},y:{...gridY,stacked:true}}}});
   mkChart('chFxVr',{type:'doughnut',data:{labels:['Fixed','Variable'],datasets:[{data:[fx,vr],backgroundColor:[C.navy,C.lightsteel],borderWidth:0,dl:{}}]},
     options:{cutout:'58%',shareOf:'tagged operating cost',plugins:{legend:{position:'bottom'}}}});
-  mkChart('chCombo',{type:'bar',data:{labels:LBL,datasets:[
+  mkChart('chCombo',{type:'bar',data:{labels:wLBL(),datasets:[
     {label:'DC cost (MB)',data:sl(whMB),backgroundColor:C.navyA,borderColor:C.slate,borderWidth:1,borderRadius:3,yAxisID:'y'},
     line({label:isDry?'THB/case':'THB/kg',type:'line',data:sl(unitArr(whT,vol)),borderColor:C.teal,yAxisID:'y2',dec:2,dl:{...dl2,mode:'last'}})]},
     options:{...padR,scales:{x:gridX,y:{...gridY,position:'left'},y2:{position:'right',grid:{display:false},border:{display:false}}}}});
@@ -1536,11 +1587,11 @@ function pgMM(el){
     <div class="card"><h4>By temperature — ${modeLbl()}</h4>${tbl(['Temperature','Cost (MB)','Share',cmpLbl(),'YoY'],mmRows,['<b>Total</b>',fMB(pSum(tot)),'100%','',''])}
       <div class="note">Source: MM Cost Data (Dry MM + Fresh MM). Per-distribution-center mid-mile is not reported in the source file.</div></div>
   </div>`;
-  mkChart('chMMtrend',{type:'bar',data:{labels:LBL,datasets:[
+  mkChart('chMMtrend',{type:'bar',data:{labels:wLBL(),datasets:[
     {label:'Dry',data:sl(dryMM),backgroundColor:TEMP_COLOR.Dry,stack:'s',borderRadius:3},
     {label:'Fresh',data:sl(freshMM),backgroundColor:TEMP_COLOR.Fresh,stack:'s',borderRadius:3}]},
     options:{...padT,plugins:{stackTotals:dlMB0},scales:{x:{...gridX,stacked:true},y:{...gridY,stacked:true,title:{display:true,text:'MB'}}}}});
-  mkChart('chMMeff',{type:'line',data:{labels:LBL,datasets:[
+  mkChart('chMMeff',{type:'line',data:{labels:wLBL(),datasets:[
     line({label:'Cost/Trip (THB)',data:sl(unitArr(mmTHB,trips)),borderColor:C.navy,yAxisID:'y',dec:0,dl:{dec:0,mode:'last'}}),
     line({label:'Case/Trip',data:sl(unitArr(outC,trips)),borderColor:C.gold,yAxisID:'y2',dec:0,dl:{dec:0,mode:'last'}})]},
     options:{...padR,scales:{x:gridX,y:{...gridY,position:'left'},y2:{position:'right',grid:{display:false},border:{display:false}}}}});
@@ -1606,7 +1657,7 @@ function fcOverview(el, chipsRow){
     {label:'Sales',data:FC_ORDER.map(c=>pSum(FC[c].sales)),backgroundColor:C.teal,borderRadius:4,dl:dlMB1,drill:i=>`S.fc='${FC_ORDER[i]}';render()`},
     {label:'FC operation',data:FC_ORDER.map(c=>pSum(FC[c].op)),backgroundColor:C.navy,borderRadius:4,dl:dlMB1,drill:i=>`S.fc='${FC_ORDER[i]}';render()`}]},
     options:{...padT,scales:{x:gridX,y:{...gridY,title:{display:true,text:'MB'}}}}});
-  mkChart('chFCtrend',{type:'bar',data:{labels:FLBL,datasets:FC_ORDER.map((c,k)=>({label:FC_SHORT[c],data:fsl(FC[c].op),backgroundColor:FC_COLOR[c],stack:'s',drill:`S.fc='${c}';render()`}))},
+  mkChart('chFCtrend',{type:'bar',data:{labels:fLBL(),datasets:FC_ORDER.map((c,k)=>({label:FC_SHORT[c],data:fsl(FC[c].op),backgroundColor:FC_COLOR[c],stack:'s',drill:`S.fc='${c}';render()`}))},
     options:{...padT,plugins:{stackTotals:dlMB0},scales:{x:{...gridX,stacked:true},y:{...gridY,stacked:true,title:{display:true,text:'MB'}}}}});
   mkChart('chFCaov',{type:'bar',data:{labels:aovRank.map(x=>FC_SHORT[x.c]),datasets:[
     {label:'AOV',data:aovRank.map(x=>x.v),backgroundColor:aovRank.map(x=>FC_COLOR[x.c]),borderRadius:4,dl:{dec:0},drill:i=>`S.fc='${aovRank[i].c}';render()`}]},
@@ -1616,11 +1667,11 @@ function fcDetail(el, chipsRow, code){
   const i=mi(S.month); const f=FC[code];
   const ord=f.orders[i], sales=pSum(f.sales), t=pSum(f.total), o=pSum(f.op), l=pSum(f.lm);
   const cpo=ord? f.total[i]*1e6/ord:null, wpo=ord? f.op[i]*1e6/ord:null, lpo=ord? f.lm[i]*1e6/ord:null;
-  const fcRaw=RAW.fc[code]; const shMonths=fcRaw.months.map(mo=>mi(mo)).filter(k=>k>=0&&k<=LAST);
+  const fcRaw=RAW.fc[code]; const shMonths=fcRaw.months.map(mo=>mi(mo)).filter(k=>k>=fWinStart()&&k<=winEnd());
   const shLbl=shMonths.map(k=>LBL[k]);
   const secs=[['personnel','Personnel'],['establishment','Establishment'],['computer','Computer'],['general','General (excl. last-mile)'],['depreciation','D&A'],['rent','Rent']];
   const secArr=k=>{const a=fcRaw.s[k]||[], lmv=fcRaw.s['last_mile']||[];
-    return fcRaw.months.map((mo,j)=>{const g=(a[j]||0); return (k==='general'? g-(lmv[j]||0):g)/1e6;}).filter((_,j)=>mi(fcRaw.months[j])>=0&&mi(fcRaw.months[j])<=LAST);};
+    return fcRaw.months.map((mo,j)=>{const g=(a[j]||0); return (k==='general'? g-(lmv[j]||0):g)/1e6;}).filter((_,j)=>mi(fcRaw.months[j])>=fWinStart()&&mi(fcRaw.months[j])<=winEnd());};
   el.innerHTML = chipsRow + `
   <div class="grid cards4">
     ${kpi({title:f.name+' — Sales (GMV)',val:sales?fMB(sales):'–',unit:'MB',chips:[chip(sales,pPrev(f.sales),cmpLbl(),true)],sub:f.aov[i]?('AOV '+fmt(f.aov[i],0)+' THB'):'', badge:' '+srcBadge()+(code==='FC406'?' '+BADGES.fc406:'')+(code==='FC409'?' '+BADGES.fc409:'')+(code==='FC403'?' '+BADGES.fc403:'')})}
@@ -1640,7 +1691,7 @@ function fcDetail(el, chipsRow, code){
   const othersOp=Math.max(pSum(sumFC('op'))-o,0);
   mkChart('chFCmix',{type:'doughnut',data:{labels:[f.name,'Other FCs'],datasets:[{data:[o,othersOp],backgroundColor:[FC_COLOR[code],'#D5DAE5'],borderWidth:0,dl:{}}]},options:{cutout:'58%',plugins:{legend:{position:'bottom'}}}});
   mkChart('chFCfv',{type:'doughnut',data:{labels:['Fixed','Variable'],datasets:[{data:[pSum(f.fixed),pSum(f.vari)],backgroundColor:[C.navy,C.lightsteel],borderWidth:0,dl:{}}]},options:{cutout:'58%',plugins:{legend:{position:'bottom'}}}});
-  mkChart('chFC2s',{type:'line',data:{labels:FLBL,datasets:[
+  mkChart('chFC2s',{type:'line',data:{labels:fLBL(),datasets:[
     line({label:'FC operation / sales %',data:fsl(M.map((_,j)=>f.sales[j]? f.op[j]/f.sales[j]*100:null)),borderColor:C.navy,suffix:'%',dl:{fmt:v=>fmt(v,0)+'%',mode:'last'}})]},
     options:{...padR,scales:{x:gridX,y:{...gridY,title:{display:true,text:'%'}}}}});
   mkChart('chFCstr',{type:'bar',data:{labels:shLbl,datasets:secs.map(([k,n],x)=>({label:n,data:secArr(k),backgroundColor:SEC_COLOR[k],stack:'s'}))},
@@ -1649,7 +1700,7 @@ function fcDetail(el, chipsRow, code){
     {label:'Operation cost (MB)',data:fsl(f.op),backgroundColor:C.navyA,borderColor:C.slate,borderWidth:1,borderRadius:3,yAxisID:'y',dl:dlMB1},
     line({label:'Cost/order (THB)',type:'line',data:fsl(M.map((_,j)=>f.orders[j]? f.op[j]*1e6/f.orders[j]:null)),borderColor:C.teal,yAxisID:'y2',dec:0,dl:{dec:0,mode:'last'}})];
   if(f.aov.some(v=>v)) cpoDs.push(line({label:'AOV (THB)',type:'line',data:fsl(f.aov.map(v=>v||null)),borderColor:C.gold,yAxisID:'y2',dec:0,dl:{dec:0,mode:'last'}}));
-  mkChart('chFCcpo',{type:'bar',data:{labels:FLBL,datasets:cpoDs},
+  mkChart('chFCcpo',{type:'bar',data:{labels:fLBL(),datasets:cpoDs},
     options:{...padR,scales:{x:gridX,y:{...gridY},y2:{position:'right',grid:{display:false},border:{display:false}}}}});
 }
 function alignPnlDays(code,i){ const p=RAW.fc[code].pnl; if(!p||!p.months||!p.days) return null; const j=p.months.indexOf(M[i]); return j>=0? p.days[j]:null; }
@@ -1684,8 +1735,10 @@ function lmPrevAvg(a){
 }
 function lmYoY(a){ const j=lmIdx(); if(j<0||S.mode!=='M') return null; return (j>=12 && LM.has[j-12] && a[j-12]) ? a[j-12] : null; }
 const lmLbl = () => { const j=lmIdx(); return j<0? '–' : (S.mode==='M' ? label(M[j]) : 'YTD Jan–'+label(M[j]).split(' ')[0]+' '+M[j].split('-')[0]); };
-/* month axis limited to months that actually carry last-mile data */
-const lmAxis = () => { const out=[]; LM.has.forEach((v,i)=>{ if(v && i<=LAST) out.push(i); }); return out; };
+/* month axis: the 12 last-mile-data months ending at lmIdx() — the effective last-mile
+   month, which is the selected month when it has data, else the newest month that does.
+   This keeps the last-mile trends in step with the KPI cards (which also use lmIdx). */
+const lmAxis = () => { const out=[], e=lmIdx(); if(e<0) return out; const s=Math.max(0, e-(WIN-1)); LM.has.forEach((v,i)=>{ if(v && i>=s && i<=e) out.push(i); }); return out; };
 const lmSeries = a => lmAxis().map(k=>a[k]);
 const lmLabels = () => lmAxis().map(k=>LBL[k]);
 
