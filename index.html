@@ -789,7 +789,7 @@ function renderAxisChart(cfg, W, H, id){
       const pct = denom>0? (Math.abs(v)/denom*100).toFixed(1) : null;
       const cat = d.label ? labels[i] : '';
       let shareTok = '';
-      if(pct!=null){
+      if(pct!=null && !opts.noShare){   /* opts.noShare hides the share where it is not meaningful */
         if(opts.shareOf) shareTok = `${pct}% of ${opts.shareOf}`;
         else if(stacked) shareTok = `${pct}% of ${labels[i]} total`;
         else             shareTok = `${pct}% of the total`;
@@ -1888,7 +1888,7 @@ function lmLocal(el, head){
   </div>`;
   mkChart('lmLo1',{type:'bar',data:{labels:lmLabels(),datasets:[
     {label:'Local cost',data:lmSeries(l.cost),backgroundColor:LM_CH_COLOR.local,borderRadius:3,dl:dlMB1,drill:"S.lm='OVERVIEW';render()"}]},
-    options:{...padT,plugins:{legend:{display:false}},scales:{x:gridX,y:{...gridY,title:{display:true,text:'MB'}}}}});
+    options:{...padT,noShare:true,plugins:{legend:{display:false}},scales:{x:gridX,y:{...gridY,title:{display:true,text:'MB'}}}}});
   mkChart('lmLo2',{type:'bar',data:{labels:lmLabels(),datasets:[
     {label:'4W',data:lmSeries(l.cost4W),backgroundColor:LM_TRUCK_COLOR['4W'],stack:'s'},
     {label:'2W',data:lmSeries(l.cost2W),backgroundColor:LM_TRUCK_COLOR['2W'],stack:'s'}]},
