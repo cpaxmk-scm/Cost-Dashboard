@@ -1659,10 +1659,11 @@ function fcOverview(el, chipsRow){
       ['<b>B2C Total</b>',fMB(pSum(sales)),aovAll?fmt(aovAll,0):'–',fMB(pSum(op)),pSum(sales)?(pSum(op)/pSum(sales)*100).toFixed(1)+'%':'–','',''])}
     <div class="note">Source: FC P&L sheet (KTHB → MB). Cost = FC operation only; its delivery sits in the Last-Mile total. FC409 from its account sheet. Cost/Order shown for the selected month.</div>
   </div>`;
-  /* both series in the FC master colour (purple), told apart by tone: sales = pale, operation = full */
+  /* each FC in its own master colour (the same FC_COLOR used by AOV-by-FC and the trend),
+     the two series told apart by tone: Sales = lighter, FC operation = full colour. */
   mkChart('chFCsc',{type:'bar',data:{labels:FC_ORDER.map(c=>FC_SHORT[c]),datasets:[
-    {label:'Sales',data:FC_ORDER.map(c=>pSum(FC[c].sales)),backgroundColor:lighten(SEGCOL.fcop,0.55),borderRadius:4,dl:dlMB1,drill:i=>`S.fc='${FC_ORDER[i]}';render()`},
-    {label:'FC operation',data:FC_ORDER.map(c=>pSum(FC[c].op)),backgroundColor:SEGCOL.fcop,borderRadius:4,dl:dlMB1,drill:i=>`S.fc='${FC_ORDER[i]}';render()`}]},
+    {label:'Sales',data:FC_ORDER.map(c=>pSum(FC[c].sales)),backgroundColor:FC_ORDER.map(c=>lighten(FC_COLOR[c],0.5)),legendColor:lighten(C.ink2,0.5),borderRadius:4,dl:dlMB1,drill:i=>`S.fc='${FC_ORDER[i]}';render()`},
+    {label:'FC operation',data:FC_ORDER.map(c=>pSum(FC[c].op)),backgroundColor:FC_ORDER.map(c=>FC_COLOR[c]),legendColor:C.ink2,borderRadius:4,dl:dlMB1,drill:i=>`S.fc='${FC_ORDER[i]}';render()`}]},
     options:{...padT,scales:{x:gridX,y:{...gridY,title:{display:true,text:'MB'}}}}});
   mkChart('chFCtrend',{type:'bar',data:{labels:fLBL(),datasets:FC_ORDER.map((c,k)=>({label:FC_SHORT[c],data:fsl(FC[c].op),backgroundColor:FC_COLOR[c],stack:'s',drill:`S.fc='${c}';render()`}))},
     options:{...padT,plugins:{stackTotals:dlMB0},scales:{x:{...gridX,stacked:true},y:{...gridY,stacked:true,title:{display:true,text:'MB'}}}}});
