@@ -1,0 +1,19 @@
+{
+ "file": "LM Cost Data 202606.xlsb",
+ "size": 26849154,
+ "sha256": "d1e4097a9910346446dbfcea32accef494347800ec574c7a8f5e9184eb46d74a",
+ "parts": [
+  {
+   "file": "lm-part-1.bin",
+   "bytes": 8949718
+  },
+  {
+   "file": "lm-part-2.bin",
+   "bytes": 8949718
+  },
+  {
+   "file": "lm-part-3.bin",
+   "bytes": 8949718
+  }
+ ]
+}
