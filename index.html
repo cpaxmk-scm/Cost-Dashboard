@@ -305,7 +305,7 @@ footer{padding:18px 28px;font-size:10.5px;color:var(--on-dark-3);border-top:1px 
 <aside>
   <div class="logo"><div class="mk"><div class="sq"><svg width="19" height="19" viewBox="0 0 24 24" fill="#fff"><path d="M4 20V10h3.5v10H4zm6.25 0V4h3.5v16h-3.5zm6.25 0v-7H20v7h-3.5z"/></svg></div><h1>SCM COST<span>Dashboard</span></h1></div></div>
   <nav id="nav"></nav>
-  <div class="sfoot">Data: Jan-2025 → July 2026<br>B2C data from Jan-2026<br>Generated 2026-08-19 · v17.1 offline · interactive</div>
+  <div class="sfoot">Data: Jan-2025 → July 2026<br>B2C data from Jan-2026<br>Generated 2026-08-19 · v17.2 offline · interactive</div>
 </aside>
 <main>
   <div id="topbar">
@@ -398,7 +398,9 @@ function alignSheet(code, key, div){         // THB -> MB (div=1e6)
   f.months.forEach((mo,j)=>{ const k=mi(mo); if(k>=0) out[k]=(f.s[key]?(f.s[key][j]||0):0)/div; });
   return out;
 }
-/* FC view: P&L is source of truth; FC409 from its account sheet (no P&L block yet) */
+/* FC view: P&L is source of truth for every FC, including FC409 (resolved Aug 2026).
+   The account-sheet fallback below is kept as a safety net if a future FC ever
+   ships without a P&L block, but it is not currently exercised by any site. */
 const FC = {};
 FC_ORDER.forEach(code=>{
   const fromPnl = RAW.fc[code].pnl && RAW.fc[code].pnl.months;
@@ -1330,7 +1332,7 @@ function unitYoY(cost,vol){ if(S.mode!=='M') return null; const i=mi(S.month); i
 const unitArr = (cost,vol) => M.map((_,i)=> vol[i]? cost[i]/vol[i] : null);
 
 const BADGES = {
-  fc409: badge('no P&L block','FC409 has no block in the P&L sheet yet — figures taken from the FC409 account sheet (cost & last-mile only; no sales/orders).'),
+  fc409: badge('check sales figure','FC409 has a full P&L block (sales, cost, AOV, orders/day), but its cost-to-sale ratio runs far outside every other site — 199% in Jul-26, i.e. cost is roughly double sales. No other FC is anywhere near that. Worth checking the "Sale (KTHB)" row with the source — it may not be capturing the right revenue basis rather than reflecting a real operating loss.'),
   fc403: badge('recon gap','Historic only: Jun-26 showed P&L 31.91 MB vs account sheet 32.67 MB (Δ0.76 MB). The source has since been corrected — Jul-26 agrees to Δ0.01 MB. P&L remains the source of truth.'),
   lmInterim: badge('interim source','Dedicated last-mile data file not yet available — figure comes from FC P&L “- Last mile” rows.'),
   perKg: badge('unit: THB/Kg','Unit note — not a warning. Fresh volume is recorded in tons in the source file, and the file states its own fresh unit costs per kilogram. This dashboard follows that convention, so fresh cost reads as THB per kg. To quote it per ton, multiply by 1,000 (e.g. 3.28 THB/kg = 3,280 THB/ton). Dry uses cases instead, which is why only the fresh cards carry this note.'),
@@ -1391,7 +1393,7 @@ function pgSummary(el){
     <div class="grid summ-segs">
       ${segCard('B2B · Distribution Center', SEG.b2bWH, b2bwh)}
       ${segCard('B2B · Mid-Mile Transport', SEG.midMile, mm)}
-      ${segCard('B2C · FC Operation', SEG.fcOp, fco, ' '+BADGES.fc409)}
+      ${segCard('B2C · FC Operation', SEG.fcOp, fco)}
       ${segCard('B2C · Last-Mile Delivery', lmUse, lmSeg, ' '+badge('FC + Store + Local','The whole delivery operation from LMD Cost Data.xlsb — row “Cost (Store+FC+Local)”. This is what Total SCM counts. The FC P&L “− Last mile” line is a different view of the FC portion only and is deliberately excluded from the total so nothing is counted twice.'))}
     </div>
   </div>
@@ -1490,7 +1492,7 @@ function pgUnit(el){
   const dash='<span class="mut">–</span>';
   const fcRows=FC_ORDER.map(c=>{
     const f=FC[c]; const ord=f.orders[i];
-    if(!ord) return [`<span class="name">${f.name}</span> ${c==='FC409'?BADGES.fc409:(c==='FC411'?'<span class="chip lbl">ramp-up</span>':'')}`, dash, dash, dash, dash, dash];
+    if(!ord) return [`<span class="name">${f.name}</span> ${c==='FC411'?'<span class="chip lbl">ramp-up</span>':''}`, dash, dash, dash, dash, dash];
     const lmArr=fcLmOf(c);
     const wo=f.op[i]*1e6/ord, lo=(lmArr[i]||0)*1e6/ord, to=wo+lo;
     const pOrd=f.orders[i-1], pTo=pOrd? (f.op[i-1]+(lmArr[i-1]||0))*1e6/pOrd : null;
@@ -1856,11 +1858,11 @@ function fcOverview(el, chipsRow){
     <div class="card">${chBox('chFCsc',300,'Sales vs FC Operation cost by FC — '+modeLbl()+' (MB)'+DH)}</div>
     <div class="card">${chBox('chFCtrend',300,'FC operation cost trend by FC (MB) — labels = month total'+DH)}</div>
   </div>
-  <div class="card" style="margin-top:14px">${chBox('chFCaov',300,'AOV by FC — '+modeLbl()+' (THB/order, ranked vs peer average)'+DH)}<div class="note">AOV = Sales ÷ orders. Shown as a ranked bar so it scales as more FCs are added; the dashed line is the average across FCs. FC409/FC411: no order data yet.</div></div>
+  <div class="card" style="margin-top:14px">${chBox('chFCaov',300,'AOV by FC — '+modeLbl()+' (THB/order, ranked vs peer average)'+DH)}<div class="note">AOV = Sales ÷ orders. Shown as a ranked bar so it scales as more FCs are added; the dashed line is the average across FCs. FC412: no order data yet.</div></div>
   <div class="card" style="margin-top:14px"><h4>FC benchmark — ${modeLbl()}</h4>
     ${tbl(['Fulfillment Center','Sales (MB)','AOV (THB)','FC Operation (MB)','Cost-to-Sale','Cost/Order (THB)',cmpLbl()],rows,
       ['<b>B2C Total</b>',fMB(pSum(sales)),aovAll?fmt(aovAll,0):'–',fMB(pSum(op)),pSum(sales)?(pSum(op)/pSum(sales)*100).toFixed(1)+'%':'–','',''])}
-    <div class="note">Source: FC P&L sheet (KTHB → MB). Cost = FC operation only; its delivery sits in the Last-Mile total. FC409 from its account sheet. Cost/Order shown for the selected month.</div>
+    <div class="note">Source: FC P&L sheet (KTHB → MB). Cost = FC operation only; its delivery sits in the Last-Mile total. Cost/Order shown for the selected month.</div>
   </div>`;
   /* each FC in its own master colour (the same FC_COLOR used by AOV-by-FC and the trend),
      the two series told apart by tone: Sales = lighter, FC operation = full colour. */
