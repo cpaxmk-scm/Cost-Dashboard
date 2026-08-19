@@ -55,16 +55,22 @@ select{appearance:none;background:var(--card);border:1px solid var(--line);borde
 .seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:9px;overflow:hidden}
 .seg button{border:0;background:transparent;padding:8px 14px;font-size:12px;font-weight:700;color:var(--ink-2);cursor:pointer}
 .seg button.on{background:var(--accent);color:var(--accent-ink)}
-/* ---- Cost Driver page ---- */
-.dtbl{width:100%;border-collapse:collapse;font-size:13px}
-.dtbl td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+/* ---- Root Cause page ----
+   Inherits .tbl exactly, so type size, weight and row rhythm match every other table
+   on the dashboard. Only the in-row bar is new. */
+.dtbl{width:100%;border-collapse:collapse;font-size:12.5px;color:var(--ink)}
+.dtbl td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;
+  white-space:nowrap;font-variant-numeric:tabular-nums;vertical-align:middle}
+.dtbl td:first-child{text-align:left;white-space:normal}
 .dtbl tr:last-child td{border-bottom:0}
-.dtbl .name{font-weight:600}
-.dtbl .up{color:var(--red-dk)}
-.dtbl .dn{color:var(--green-dk)}
-.dtbl tr.dtot td{border-top:2px solid var(--ink);border-bottom:0;padding-top:9px}
-.dbar{background:var(--navy-soft);border-radius:3px;height:15px;width:100%}
-.dfill{height:15px;border-radius:3px}
+.dtbl td.name{font-weight:700}
+.dtbl td.sub{padding-left:26px;color:var(--ink-2)}
+.dtbl td.sub2{padding-left:44px;color:var(--ink-2)}
+.dtbl .up{color:var(--red-dk);font-weight:800}
+.dtbl .dn{color:var(--green-dk);font-weight:800}
+.dtbl tr.tot td{font-weight:800;background:var(--navy-soft);border-top:2px solid var(--ink-2);border-bottom:0}
+.dbar{background:var(--navy-soft);border-radius:3px;height:14px;width:100%;min-width:60px}
+.dfill{height:14px;border-radius:3px}
 .ctl .vs{font-size:11px;color:var(--ink-3);font-weight:700}
 #page{padding:24px 28px 48px;max-width:1480px;width:100%;margin:0 auto}
 /* ---------------- components ---------------- */
@@ -299,7 +305,7 @@ footer{padding:18px 28px;font-size:10.5px;color:var(--on-dark-3);border-top:1px 
 <aside>
   <div class="logo"><div class="mk"><div class="sq"><svg width="19" height="19" viewBox="0 0 24 24" fill="#fff"><path d="M4 20V10h3.5v10H4zm6.25 0V4h3.5v16h-3.5zm6.25 0v-7H20v7h-3.5z"/></svg></div><h1>SCM COST<span>Dashboard</span></h1></div></div>
   <nav id="nav"></nav>
-  <div class="sfoot">Data: Jan-2025 → July 2026<br>B2C data from Jan-2026<br>Generated 2026-08-19 · v17.0 offline · interactive</div>
+  <div class="sfoot">Data: Jan-2025 → July 2026<br>B2C data from Jan-2026<br>Generated 2026-08-19 · v17.1 offline · interactive</div>
 </aside>
 <main>
   <div id="topbar">
@@ -308,8 +314,8 @@ footer{padding:18px 28px;font-size:10.5px;color:var(--on-dark-3);border-top:1px 
     <div class="ctl" id="ctlSrc"></div>
     <div class="ctl" id="ctlScope"></div>
     <div class="ctl" id="ctlMonth"><label>Period</label><select id="selYear"></select><select id="selMonth"></select></div>
-    <div class="ctl"><div class="seg" id="segMode"><button data-m="M" class="on">Monthly</button><button data-m="Y">YTD</button><button data-m="C">Compare</button></div></div>
-    <div class="ctl" id="ctlCmp" style="display:none"><label>Compare</label><select id="selA"></select><span class="vs">vs</span><select id="selB"></select></div>
+    <div class="ctl"><div class="seg" id="segMode"><button data-m="M" class="on">Monthly</button><button data-m="Y">YTD</button><button data-m="R">Range</button></div></div>
+    <div class="ctl" id="ctlCmp" style="display:none"><label>Range</label><select id="selA"></select><span class="vs">to</span><select id="selB"></select></div>
     <div class="ctl"><button id="btnReset" class="btn" title="Reset month, mode, source and drill-downs to default"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Reset</button></div>
   </div>
   <div id="page"></div>
@@ -561,35 +567,52 @@ const SCOPE_TXT = { FC:'Total SCM = B2B (Distribution Center incl. TFRS16 + Mid-
 const TOTAL_TXT = SCOPE_TXT.FC;
 
 /* ---------- state ---------- */
-const S = { page:'summary', month: M[LAST], mode:'M', cmpA: M[Math.max(0,LAST-1)], cmpB: M[LAST],
+const S = { page:'summary', month: M[LAST], mode:'M', rngA: M[Math.max(0,LAST-2)], rngB: M[LAST],
             dc:'OVERVIEW', fc:'OVERVIEW', lm:'OVERVIEW', scope:'FC', src:'PNL' };
 /* scope is fixed: Total SCM always = DC Operation + Mid-Mile + FC Operation + FC last-mile.
    The whole delivery operation (Store + FC + Local) lives on the Last-Mile page. */
 
 /* ---------- period helpers (Monthly vs YTD) ---------- */
-/* THREE modes, and every figure on every page flows through these four helpers, so a
-   mode only has to be defined once here rather than page by page:
+/* THREE modes. Every figure on every page flows through these helpers, so a mode is
+   defined once here rather than page by page:
      M — the selected month
      Y — Jan .. selected month of that year
-     C — Compare: cmpB is the "current" period, cmpA is what it is measured against.
-         Any two months may be picked, in either order. */
+     R — Range: every month from rngA to rngB inclusive, in either order. Figures are
+         SUMMED across the whole range (or, for a rate, summed then divided), never
+         averaged — averaging monthly rates would weight a quiet month like a busy one. */
+function rngIdx(){
+  const a=mi(S.rngA), b=mi(S.rngB);
+  const lo=Math.min(a,b), hi=Math.max(a,b);
+  const out=[]; for(let k=lo;k<=hi;k++) out.push(k);
+  return out;
+}
 function periodIdx(){ const i=mi(S.month);
-  if(S.mode==='C') return [mi(S.cmpB)];
+  if(S.mode==='R') return rngIdx();
   if(S.mode==='M') return [i];
   const y=S.month.split('-')[0]; const out=[]; for(let k=0;k<=i;k++) if(M[k].startsWith(y)) out.push(k); return out; }
 function pSum(arr){ return periodIdx().reduce((a,k)=>a+(arr[k]||0),0); }
-function pPrev(arr){                       // comparison basis: prev month · same period LY · month A
+/* the comparison basis for every delta chip:
+     M — the previous month
+     Y — the same Jan..N window of last year
+     R — the block of months immediately BEFORE the range, of the same length */
+function prevIdx(){
   const i=mi(S.month);
-  if(S.mode==='C'){ const a=arr[mi(S.cmpA)]; return a || null; }
-  if(S.mode==='M') return i>0 ? arr[i-1] : null;
-  const idx=periodIdx().map(k=>k-12).filter(k=>k>=0);
-  if(!idx.length) return null; const v=idx.reduce((a,k)=>a+(arr[k]||0),0); return v||null;
+  if(S.mode==='R'){ const r=rngIdx(), n=r.length, s0=r[0]-n;
+    if(s0<0) return []; const out=[]; for(let k=s0;k<r[0];k++) out.push(k); return out; }
+  if(S.mode==='M') return i>0 ? [i-1] : [];
+  return periodIdx().map(k=>k-12).filter(k=>k>=0);
+}
+function pPrev(arr){
+  const idx=prevIdx(); if(!idx.length) return null;
+  const v=idx.reduce((a,k)=>a+(arr[k]||0),0); return v||null;
 }
 function pYoY(arr){ const i=mi(S.month); if(S.mode!=='M') return null; return i>=12 && arr[i-12] ? arr[i-12] : null; }
-const modeLbl = ()=> S.mode==='C' ? label(S.cmpB)+' vs '+label(S.cmpA)
+const rngLbl = ()=> { const r=rngIdx(); return LBL[r[0]]+' – '+LBL[r[r.length-1]]; };
+const modeLbl = ()=> S.mode==='R' ? rngLbl()+' ('+rngIdx().length+' months)'
                    : S.mode==='M' ? label(S.month)
                    : 'YTD Jan–'+label(S.month).split(' ')[0]+' '+S.month.split('-')[0];
-const cmpLbl  = ()=> S.mode==='C' ? 'vs '+label(S.cmpA) : S.mode==='M' ? 'MoM' : 'vs YTD LY';
+const cmpLbl  = ()=> { if(S.mode==='R'){ const p=prevIdx(); return p.length? 'vs '+LBL[p[0]]+'–'+LBL[p[p.length-1]] : 'no prior range'; }
+                       return S.mode==='M' ? 'MoM' : 'vs YTD LY'; };
 
 /* ---------- formatting ---------- */
 const fmt  = (v,d=1) => v==null||isNaN(v) ? '–' : v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -1117,6 +1140,7 @@ const yoy = (arr,i) => (i>=12 && arr[i-12]) ? arr[i]/arr[i-12]-1 : null;
 const svg = (w,paths) => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="currentColor">${paths}</svg>`;
 const ICONS = {
   summary: svg(16,'<path d="M12 3a9 9 0 0 0-9 9h3.2A5.8 5.8 0 0 1 12 6.2 5.8 5.8 0 0 1 17.8 12H21a9 9 0 0 0-9-9z"/><path d="M12 21a9 9 0 0 0 9-9h-3.2l-4.5-3.4a1.3 1.3 0 1 0-1.4 2.1L15 12.9A5.8 5.8 0 0 1 6.2 12H3a9 9 0 0 0 9 9z" opacity=".45"/>'),
+  driver:  svg(16,'<path d="M3 20V13h3.2v7H3zm5.4 0V9.5h3.2V20H8.4z" opacity=".55"/><path d="M13.8 20V4h3.2v16h-3.2z" opacity=".55"/><circle cx="15.6" cy="9.4" r="4.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M18.9 12.7 22.4 16.2l-1.7 1.7-3.5-3.5z"/>'),
   unit:    svg(16,'<circle cx="7" cy="7" r="3.2"/><circle cx="17" cy="17" r="3.2"/><path d="M5.5 19.9 18.4 4.2l1.6 1.3L7.1 21.2z"/>'),
   /* Distribution Center: large warehouse */
   dc:      svg(18,'<path d="M2 20V9.2L12 4l10 5.2V20h-3.4v-6.8H5.4V20H2z"/><path d="M6.8 20v-5.4h4V20h-4zm5.4 0v-5.4h4.9V20h-4.9z" opacity=".55"/>'),
@@ -1132,14 +1156,14 @@ const ICONS = {
 
 /* ---------- navigation ---------- */
 const NAV = [
-  {g:'Overview', items:[ ['summary','Summary'], ['driver','Cost Driver'], ['unit','Unit Cost Analysis'] ]},
+  {g:'Overview', items:[ ['summary','Summary'], ['driver','Root Cause'], ['unit','Unit Cost Analysis'] ]},
   {g:'B2B — Distribution Center', items:[ ['dc','Distribution Center'], ['mm','Mid-Mile Transport'] ]},
   {g:'B2C — Fulfillment Center', items:[ ['fc','Fulfillment Center'], ['lm','Last-Mile Delivery'] ]},
   {g:'Reference', items:[ ['guide','User Guide'], ['raw','Raw Data Export'] ]},
 ];
 const TITLES = {
   summary:['Executive Summary','Total supply-chain cost across B2B (Distribution Center + Mid-Mile) and B2C (Fulfillment Center + Last-Mile)'],
-  driver:['Cost Driver — Root Cause','What actually moved the number: the change decomposed down to the account that caused it'],
+  driver:['Root Cause','What actually moved the number: the change decomposed down to the account that caused it'],
   unit:['Unit Cost Analysis','Cost per case / kg / trip / order — the efficiency view'],
   dc:['Distribution Center — B2B','10 distribution centers: 6 Dry + 4 Fresh'],
   mm:['Mid-Mile Transport','DC-to-store transportation across all distribution centers'],
@@ -1169,7 +1193,7 @@ function go(p){ S.page=p; render(); }
 function goMonth(page, m){ S.page=page; if(m && MONTHS.indexOf(m)>=0) S.month=m; render(); }
 function setMonth(m){ if(m && MONTHS.indexOf(m)>=0){ S.month=m; render(); } }
 /* reset every filter/selector back to its default (latest month, Monthly, AO, overview). */
-const S_DEFAULT = { month:M[LAST], mode:'M', cmpA:M[Math.max(0,LAST-1)], cmpB:M[LAST],
+const S_DEFAULT = { month:M[LAST], mode:'M', rngA:M[Math.max(0,LAST-2)], rngB:M[LAST],
                     dc:'OVERVIEW', fc:'OVERVIEW', lm:'OVERVIEW', scope:'FC', src:'PNL' };
 function filtersAtDefault(){ return S.month===S_DEFAULT.month && S.mode==='M' && S.src==='PNL'
   && S.dc==='OVERVIEW' && S.fc==='OVERVIEW' && S.lm==='OVERVIEW'; }
@@ -1208,17 +1232,16 @@ function drawControls(){
     b.classList.toggle('on', b.dataset.m===S.mode);
     b.onclick=()=>{ S.mode=b.dataset.m; render(); };
   });
-  /* Compare: two month pickers, shown only in Compare mode. The plain month picker is
-     hidden there, because in Compare the two dropdowns below ARE the period. */
+  /* Range: a From and a To picker, shown only in Range mode. The single month picker
+     is hidden there, because in Range those two dropdowns ARE the period. */
   const cc=document.getElementById('ctlCmp');
   if(cc){
-    cc.style.display = S.mode==='C' ? 'flex' : 'none';
-    const mp=document.getElementById('ctlMonth'); if(mp) mp.style.display = S.mode==='C' ? 'none' : 'flex';
-    if(S.mode==='C'){
-      /* Only months that actually carry data. M runs to December of the reporting year,
-         but LBL stops at the last month with figures — listing the rest would offer
-         empty periods and print "undefined" as their label. */
-      [['selA','cmpA'],['selB','cmpB']].forEach(([id,key])=>{
+    cc.style.display = S.mode==='R' ? 'flex' : 'none';
+    const mp=document.getElementById('ctlMonth'); if(mp) mp.style.display = S.mode==='R' ? 'none' : 'flex';
+    if(S.mode==='R'){
+      /* Only months that carry data. M runs to December of the reporting year but LBL
+         stops at the last month with figures; offering the rest would give empty periods. */
+      [['selA','rngA'],['selB','rngB']].forEach(([id,key])=>{
         const sel=document.getElementById(id); if(!sel) return;
         sel.innerHTML = M.slice(0, LAST+1)
           .map((mo,k)=>`<option value="${mo}"${mo===S[key]?' selected':''}>${LBL[k]}</option>`).join('');
@@ -1226,6 +1249,7 @@ function drawControls(){
       });
     }
   }
+
   /* Source switch — visible wherever the two systems overlap (Summary, FC, Last-Mile) */
   const sr=document.getElementById('ctlSrc');
   if(sr){
@@ -1274,12 +1298,12 @@ window.addEventListener('DOMContentLoaded', render);
    months, which meant YTD cards and monthly-window charts disagreed on the same page. */
 const WIN = 12;
 function winEnd(){
-  if(S.mode === 'C') return Math.max(mi(S.cmpA), mi(S.cmpB));   // Compare: span the two picks
+  if(S.mode === 'R') return Math.max(mi(S.rngA), mi(S.rngB));   // Range: the later pick
   return mi(S.month);
 }
 function winStart(){
   const e = winEnd();
-  if(S.mode === 'C') return Math.min(mi(S.cmpA), mi(S.cmpB));   // Compare: earlier of the two
+  if(S.mode === 'R') return Math.min(mi(S.rngA), mi(S.rngB));   // Range: the earlier pick
   if(S.mode === 'Y'){                       // YTD: back to January of the selected year
     const y = M[e].slice(0,4);
     let s = e;
@@ -1426,8 +1450,8 @@ function pgUnit(el){
   const opOf  = (c,idx) => sumOver(idx, k=>FC[c].op[k]);
   const lmOf  = (c,idx) => sumOver(idx, k=>fcLmOf(c)[k]);
   const rate  = (cost,ord) => ord ? cost*1e6/ord : null;
-  /* previous basis: prior month in Monthly mode, same period last year in YTD */
-  const prevIdx = (S.mode==='M') ? (i>0?[i-1]:[]) : pIdx.map(k=>k-12).filter(k=>k>=0);
+  /* comparison basis comes from the shared helper, so it is right in all three modes */
+  const pvIdx = prevIdx();
 
   const cpoOf = (c,idx) => rate(opOf(c,idx)+lmOf(c,idx), ordOf(c,idx));
   const ordAll = idx => FC_ORDER.reduce((a,c)=>a+ordOf(c,idx),0);
@@ -1437,12 +1461,12 @@ function pgUnit(el){
   const ordAt = k => FC_ORDER.reduce((a,c)=>a+(FC[c].orders[k]||0),0);
   const cstAt = k => FC_ORDER.reduce((a,c)=>a+(FC[c].op[k]||0)+(fcLmOf(c)[k]||0),0);
   const cpoNet     = rate(cstAll(pIdx),    ordAll(pIdx));
-  const cpoNetPrev = prevIdx.length ? rate(cstAll(prevIdx), ordAll(prevIdx)) : null;
+  const cpoNetPrev = pvIdx.length ? rate(cstAll(pvIdx), ordAll(pvIdx)) : null;
   const cpoRank = FC_ORDER.filter(c=>cpoOf(c,pIdx)!=null).map(c=>({c, name:FC_SHORT[c],
       v:  cpoOf(c,pIdx),
       op: rate(opOf(c,pIdx), ordOf(c,pIdx)),
       lm: rate(lmOf(c,pIdx), ordOf(c,pIdx)),
-      prev: prevIdx.length ? cpoOf(c,prevIdx) : null})).sort((a,b)=>b.v-a.v);
+      prev: pvIdx.length ? cpoOf(c,pvIdx) : null})).sort((a,b)=>b.v-a.v);
   /* DC cost INCLUDES the TFRS16 lease add-on — TFRS16 is distribution-centre cost,
      so excluding it understated every DC rate and broke card1 = card2 + card3. */
   const dryWH=add(dcRaw('Dry','total_wh'),dcRaw('Dry','tfrs16')), dryIn=dcRaw('Dry','inbound_case'), dryGrand=dcRaw('Dry','grand_total');
@@ -1519,7 +1543,7 @@ function pgUnit(el){
     <div class="card">${chBox('chUFresh',260,'Fresh unit cost trend (THB/Kg)')}
       <div class="note">The pale dotted rules join the two lines each month — that gap <b>is</b> the Mid-Mile transport per kilogram. Hover a rule to read the figure.</div></div>
   </div>
-  <div class="section-h"><h5>B2C — What one order costs to fulfill and deliver</h5><div class="ln"></div><span class="mini">${label(S.month)} · cost per order includes fulfillment operation + last-mile delivery · source: ${SRC_NAME[curSrc()]} ${info('Use the “Source of data” switch in the top bar to compare the two systems. FC P&L books delivery in the fulfillment ledger (sales from Axtra Omni Channel); the LMD file books the same trips from the delivery operation (sales from RMS). Cost and sales switch together, so the ratio is never mixed.')}</span></div>
+  <div class="section-h"><h5>B2C — What one order costs to fulfill and deliver</h5><div class="ln"></div><span class="mini">${modeLbl()} · cost per order includes fulfillment operation + last-mile delivery · source: ${SRC_NAME[curSrc()]} ${info('Use the “Source of data” switch in the top bar to compare the two systems. FC P&L books delivery in the fulfillment ledger (sales from Axtra Omni Channel); the LMD file books the same trips from the delivery operation (sales from RMS). Cost and sales switch together, so the ratio is never mixed.')}</span></div>
   <div class="grid cards4" style="margin-bottom:14px">
     ${kpi({title:'B2C Cost per Order', val:cpoNet!=null? fmt(cpoNet,0):'–', unit:'THB / order',
       sub:'all fulfillment centers together — total B2C cost ÷ total orders', badge:' '+srcBadge(),
@@ -1534,7 +1558,7 @@ function pgUnit(el){
   <div class="grid g2">
     <div class="card">${chBox('chUFC',320,'Cost per order by fulfillment center — '+label(S.month)+' (THB)')}
       <div class="note">One bar per center, tallest cost first. Each bar splits into <span class="swatch" style="background:${SEGCOL.fcop}"></span>fulfillment operation and <span class="swatch" style="background:${SEGCOL.lm}"></span>last-mile delivery, and the dashed line is the B2C average of ${cpoNet!=null? fmt(cpoNet,0):'–'} THB. Read it as: how much does it cost us to get one order out of this site.</div></div>
-    <div class="card"><h4>The same figures as a table — ${label(S.month)}</h4>${tbl(['Fulfillment Center','Orders','Operation / order','Last-mile / order','Total / order','vs B2C average','MoM'],fcRows)}
+    <div class="card"><h4>The same figures as a table — ${modeLbl()}</h4>${tbl(['Fulfillment Center','Orders','Operation / order','Last-mile / order','Total / order','vs B2C average','MoM'],fcRows)}
       <div class="note">Orders = average orders per day × days in the month (equals sales ÷ AOV). A center above the B2C average is dearer to serve than the average order.</div></div>
   </div>
 
@@ -1795,11 +1819,7 @@ function pgFC(el){
 /* orders summed over the page period (one month in Monthly, Jan..selected in YTD) */
 function pOrders(f){ return periodIdx().reduce((a,k)=>a+(f.orders[k]||0),0); }
 /* orders over the comparison basis: previous month, or same period last year in YTD */
-function pOrdersPrev(f){
-  const i=mi(S.month);
-  const idx = (S.mode==='M') ? (i>0?[i-1]:[]) : periodIdx().map(k=>k-12).filter(k=>k>=0);
-  return idx.reduce((a,k)=>a+(f.orders[k]||0),0);
-}
+function pOrdersPrev(f){ return prevIdx().reduce((a,k)=>a+(f.orders[k]||0),0); }
 function aovOf(f){
   if(S.mode==='M') return f.aov[mi(S.month)] || null;
   const ords=pOrders(f);
@@ -1860,7 +1880,7 @@ function fcDetail(el, chipsRow, code){
   const sales=pSum(f.sales), t=pSum(f.total), o=pSum(f.op), l=pSum(f.lm);
   const ord=pOrders(f), ordPrev=pOrdersPrev(f);
   const avNow=aovOf(f);
-  const cpoPrev=(()=>{ const ii=(S.mode==='M')?(i>0?[i-1]:[]):periodIdx().map(k=>k-12).filter(k=>k>=0);
+  const cpoPrev=(()=>{ const ii=prevIdx();
     if(!ii.length) return null;
     const oo=ii.reduce((a,k)=>a+(f.orders[k]||0),0), cc=ii.reduce((a,k)=>a+(f.op[k]||0),0);
     return oo? cc*1e6/oo : null; })();
@@ -2550,55 +2570,45 @@ function pgRaw(el){
 /* download box (bottom of Raw Data Export): hands back the original source workbooks
    embedded in this file. The last-mile .xlsb is not embedded (too large). */
 
-/* =========================== COST DRIVER — ROOT CAUSE ===========================
+/* =========================== ROOT CAUSE ===========================
    Every other page answers "what is the number". This one answers "what moved it".
 
-   It decomposes the CHANGE, not the level, and it follows whatever the mode filter
-   says — so the same page gives a different (and equally true) answer depending on
-   whether you ask about the month or the year. That is the point of it: in July 2026
-   the monthly culprit is DC general expenses, while year-to-date it is Dry mid-mile
-   transport, which barely registers month on month. */
+   It decomposes the CHANGE, not the level, and follows the mode filter — so the same
+   page gives a different (and equally true) answer depending on whether you ask about
+   the month, the year to date, or a chosen range. In July 2026 the monthly culprit is
+   DC general expenses, while year-to-date it is Dry mid-mile transport, which barely
+   registers month on month. */
 function pgDriver(el){
-  const cur = periodIdx();
-  const base = (()=> {                      // what "before" means in each mode
-    const i=mi(S.month);
-    if(S.mode==='C') return [mi(S.cmpA)];
-    if(S.mode==='M') return i>0?[i-1]:[];
-    return cur.map(k=>k-12).filter(k=>k>=0);
-  })();
+  const cur = periodIdx(), base = prevIdx();
   const sum=(arr,idx)=> idx.reduce((a,k)=>a+(arr[k]||0),0);
   const dl =(arr)=> sum(arr,cur)-sum(arr,base);
-  const basisLbl = S.mode==='C' ? label(S.cmpA)
-                 : S.mode==='M' ? (mi(S.month)>0? label(M[mi(S.month)-1]) : '—')
-                 : 'YTD '+(+S.month.slice(0,4)-1);
+  const basisLbl = base.length ? (base.length===1 ? LBL[base[0]] : LBL[base[0]]+' – '+LBL[base[base.length-1]]) : '—';
 
   if(!base.length){
-    el.innerHTML = `<div class="card"><h4>Cost Driver</h4>
-      <p class="sub">There is no earlier period to compare ${modeLbl()} against, so there is no
-      change to decompose. Pick a later month, or switch mode.</p></div>`;
+    el.innerHTML = `<div class="card"><h4>Root Cause</h4>
+      <div class="note">There is no earlier period to compare ${esc(modeLbl())} against, so there is no
+      change to decompose. Pick a later month, or widen the range.</div></div>`;
     return;
   }
 
-  /* ---- level 1: the four segments ---- */
+  /* level 1 — the four segments */
   const segs=[
-    {n:'Distribution Center', v:dl(SEG.b2bWH),   c:SEGCOL.dcop, k:'dc'},
-    {n:'Mid-Mile Transport',  v:dl(SEG.midMile), c:SEGCOL.mm,   k:'mm'},
-    {n:'FC Operation',        v:dl(SEG.fcOp),    c:SEGCOL.fcop, k:'fc'},
-    {n:'Last-Mile Delivery',  v:dl(SEG.lastMile),c:SEGCOL.lm,   k:'lm'},
+    {n:'Distribution Center', v:dl(SEG.b2bWH),   c:SEGCOL.dcop},
+    {n:'Mid-Mile Transport',  v:dl(SEG.midMile), c:SEGCOL.mm},
+    {n:'FC Operation',        v:dl(SEG.fcOp),    c:SEGCOL.fcop},
+    {n:'Last-Mile Delivery',  v:dl(SEG.lastMile),c:SEGCOL.lm},
   ];
   const total = dl(SEG.total);
 
-  /* ---- level 2: what inside DC moved (the usual answer) ---- */
+  /* level 2 — inside DC, and which FC moved */
   const secs = DC_SECS.map(([k,n])=>({n, v: dl(add(dcMB('Dry',k), dcMB('Fresh',k)))}))
     .concat([{n:'TFRS16', v: dl(add(dcMB('Dry','tfrs16'), dcMB('Fresh','tfrs16')))}])
     .filter(r=>Math.abs(r.v)>=0.05).sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
   const outsrc = dl(add(dcMB('Dry','outsourcing'), dcMB('Fresh','outsourcing')));
-
-  /* ---- level 2: which FC moved ---- */
   const fcs = FC_ORDER.map(c=>({n:FC[c].name, v:dl(FC[c].op), c:FC_COLOR[c]}))
     .filter(r=>Math.abs(r.v)>=0.05).sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
 
-  /* biggest single driver across everything we can name */
+  /* biggest single named driver anywhere */
   const named=[...secs.map(r=>({...r,where:'Distribution Center'})),
                ...fcs.map(r=>({...r,where:'FC Operation'})),
                {n:'Mid-Mile Transport', v:dl(SEG.midMile), where:'Mid-Mile'},
@@ -2606,21 +2616,19 @@ function pgDriver(el){
   const top = named.slice().sort((a,b)=>Math.abs(b.v)-Math.abs(a.v))[0];
   const share = (total && top) ? Math.abs(top.v/total*100) : null;
 
-  const bar=(rows,mx)=> rows.map(r=>{
+  const rows=(list,mx,cls='')=> list.map(r=>{
     const w=mx? Math.abs(r.v)/mx*100 : 0, neg=r.v<0;
-    return `<tr><td><span class="name">${esc(r.n)}</span></td>
-      <td style="width:48%"><div class="dbar"><div class="dfill" style="width:${w.toFixed(1)}%;
+    return `<tr><td class="${cls||'name'}">${esc(r.n)}</td>
+      <td style="width:46%"><div class="dbar"><div class="dfill" style="width:${w.toFixed(1)}%;
         background:${r.c||(neg?C.grey:C.navy)};${neg?'opacity:.55':''}"></div></div></td>
-      <td style="text-align:right"><b class="${neg?'dn':'up'}">${neg?'':'+'}${fmt(r.v,2)}</b></td></tr>`;
+      <td class="${neg?'dn':'up'}">${neg?'':'+'}${fmt(r.v,2)}</td></tr>`;
   }).join('');
-  const mxS=Math.max(...segs.map(r=>Math.abs(r.v)),0.01);
-  const mxD=Math.max(...secs.map(r=>Math.abs(r.v)),0.01);
-  const mxF=Math.max(...fcs.map(r=>Math.abs(r.v)),0.01);
+  const mx=(a)=>Math.max(...a.map(r=>Math.abs(r.v)),0.01);
 
   el.innerHTML = `
   <div class="grid cards3">
-    ${kpi({title:'Total SCM change', val:(total>0?'+':'')+fmt(total,2), unit:'MB', hero:false,
-      sub:modeLbl()+' vs '+esc(basisLbl)})}
+    ${kpi({title:'Total SCM change', val:(total>0?'+':'')+fmt(total,2), unit:'MB',
+      sub:esc(modeLbl())+' vs '+esc(basisLbl)})}
     ${kpi({title:'Biggest single driver', val:top?esc(top.n):'–', unit:'',
       sub:top? ((top.v>0?'+':'')+fmt(top.v,2)+' MB · inside '+esc(top.where)) : ''})}
     ${kpi({title:'Share of the whole change', val:share!=null?fmt(share,0):'–', unit:'%',
@@ -2628,32 +2636,33 @@ function pgDriver(el){
   </div>
 
   <div class="section-h"><h5>Level 1 — which segment moved</h5><div class="ln"></div>
-    <span class="mini">${modeLbl()} vs ${esc(basisLbl)} · MB</span></div>
-  <div class="card"><table class="dtbl">${bar(segs,mxS)}
-    <tr class="dtot"><td><b>Total SCM</b></td><td></td>
-      <td style="text-align:right"><b class="${total<0?'dn':'up'}">${total<0?'':'+'}${fmt(total,2)}</b></td></tr>
-  </table></div>
+    <span class="mini">${esc(modeLbl())} vs ${esc(basisLbl)} · MB</span></div>
+  <div class="card"><table class="dtbl">${rows(segs,mx(segs))}
+    <tr class="tot"><td class="name">Total SCM</td><td></td>
+      <td class="${total<0?'dn':'up'}">${total<0?'':'+'}${fmt(total,2)}</td></tr></table>
+    <div class="note">Bars are sized against the largest mover in the group. Colour is meaning, not
+      direction: <b class="up">red pushed cost up</b>, <b class="dn">green pulled it down</b>.
+      Movements below ±0.05 MB are omitted, so the parts will not always add exactly to the total.</div>
+  </div>
 
   <div class="grid g2e" style="margin-top:14px">
     <div class="card"><h4>Level 2 — inside Distribution Center ${info('Ledger sections, both temperatures combined. This is usually where the answer is.')}</h4>
-      ${secs.length? `<table class="dtbl">${bar(secs,mxD)}</table>
-      <p class="sub">Of the General movement, <b>${(outsrc>0?'+':'')+fmt(outsrc,2)} MB</b> is outsourcing —
-        the single largest line in the whole build.</p>`
-      : '<p class="sub">No DC section moved by more than 0.05 MB.</p>'}</div>
+      ${secs.length? `<table class="dtbl">${rows(secs,mx(secs),'sub')}</table>
+      <div class="note">Of the General movement, <b>${(outsrc>0?'+':'')+fmt(outsrc,2)} MB</b> is outsourcing —
+        the single largest line in the whole build.</div>`
+      : '<div class="note">No DC section moved by more than 0.05 MB.</div>'}</div>
     <div class="card"><h4>Level 2 — inside FC Operation ${info('Per site. New and ramping sites dominate this list.')}</h4>
-      ${fcs.length? `<table class="dtbl">${bar(fcs,mxF)}</table>`
-      : '<p class="sub">No fulfillment centre moved by more than 0.05 MB.</p>'}</div>
+      ${fcs.length? `<table class="dtbl">${rows(fcs,mx(fcs),'sub')}</table>`
+      : '<div class="note">No fulfillment centre moved by more than 0.05 MB.</div>'}</div>
   </div>
 
   <div class="card" style="margin-top:14px">
     <h4>How to read this</h4>
-    <p class="sub">Bars are sized against the largest mover in their own group, so each level is readable on its
-      own scale. Colour is meaning, not direction: <b class="up">red pushed cost up</b>,
-      <b class="dn">green pulled it down</b>. Rows below ±0.05 MB are omitted, so the parts will not always add
-      exactly to the total.
-      <br><br><b>Change the mode and the answer changes</b> — that is not a bug. Monthly asks "what happened last
-      month"; YTD asks "what has happened all year". A driver that dominates one can be invisible in the other,
-      and fixing the monthly problem does not necessarily touch the annual one.</p>
+    <div class="note"><b>Change the mode and the answer changes</b> — that is not a fault. Monthly asks
+      "what happened last month"; YTD asks "what has happened all year"; Range asks about whatever span
+      you picked, measured against the block of months immediately before it. A driver that dominates one
+      view can be invisible in another, and fixing the monthly problem does not necessarily touch the
+      annual one.</div>
   </div>`;
 }
 
