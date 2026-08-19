@@ -55,6 +55,17 @@ select{appearance:none;background:var(--card);border:1px solid var(--line);borde
 .seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:9px;overflow:hidden}
 .seg button{border:0;background:transparent;padding:8px 14px;font-size:12px;font-weight:700;color:var(--ink-2);cursor:pointer}
 .seg button.on{background:var(--accent);color:var(--accent-ink)}
+/* ---- Cost Driver page ---- */
+.dtbl{width:100%;border-collapse:collapse;font-size:13px}
+.dtbl td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.dtbl tr:last-child td{border-bottom:0}
+.dtbl .name{font-weight:600}
+.dtbl .up{color:var(--red-dk)}
+.dtbl .dn{color:var(--green-dk)}
+.dtbl tr.dtot td{border-top:2px solid var(--ink);border-bottom:0;padding-top:9px}
+.dbar{background:var(--navy-soft);border-radius:3px;height:15px;width:100%}
+.dfill{height:15px;border-radius:3px}
+.ctl .vs{font-size:11px;color:var(--ink-3);font-weight:700}
 #page{padding:24px 28px 48px;max-width:1480px;width:100%;margin:0 auto}
 /* ---------------- components ---------------- */
 .ptop{margin-bottom:18px}
@@ -288,7 +299,7 @@ footer{padding:18px 28px;font-size:10.5px;color:var(--on-dark-3);border-top:1px 
 <aside>
   <div class="logo"><div class="mk"><div class="sq"><svg width="19" height="19" viewBox="0 0 24 24" fill="#fff"><path d="M4 20V10h3.5v10H4zm6.25 0V4h3.5v16h-3.5zm6.25 0v-7H20v7h-3.5z"/></svg></div><h1>SCM COST<span>Dashboard</span></h1></div></div>
   <nav id="nav"></nav>
-  <div class="sfoot">Data: Jan-2025 → July 2026<br>B2C data from Jan-2026<br>Generated 2026-08-18 · v16.2 offline · interactive</div>
+  <div class="sfoot">Data: Jan-2025 → July 2026<br>B2C data from Jan-2026<br>Generated 2026-08-19 · v17.0 offline · interactive</div>
 </aside>
 <main>
   <div id="topbar">
@@ -297,7 +308,8 @@ footer{padding:18px 28px;font-size:10.5px;color:var(--on-dark-3);border-top:1px 
     <div class="ctl" id="ctlSrc"></div>
     <div class="ctl" id="ctlScope"></div>
     <div class="ctl" id="ctlMonth"><label>Period</label><select id="selYear"></select><select id="selMonth"></select></div>
-    <div class="ctl"><div class="seg" id="segMode"><button data-m="M" class="on">Monthly</button><button data-m="Y">YTD</button></div></div>
+    <div class="ctl"><div class="seg" id="segMode"><button data-m="M" class="on">Monthly</button><button data-m="Y">YTD</button><button data-m="C">Compare</button></div></div>
+    <div class="ctl" id="ctlCmp" style="display:none"><label>Compare</label><select id="selA"></select><span class="vs">vs</span><select id="selB"></select></div>
     <div class="ctl"><button id="btnReset" class="btn" title="Reset month, mode, source and drill-downs to default"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Reset</button></div>
   </div>
   <div id="page"></div>
@@ -549,23 +561,35 @@ const SCOPE_TXT = { FC:'Total SCM = B2B (Distribution Center incl. TFRS16 + Mid-
 const TOTAL_TXT = SCOPE_TXT.FC;
 
 /* ---------- state ---------- */
-const S = { page:'summary', month: M[LAST], mode:'M', dc:'OVERVIEW', fc:'OVERVIEW', lm:'OVERVIEW', scope:'FC', src:'PNL' };
+const S = { page:'summary', month: M[LAST], mode:'M', cmpA: M[Math.max(0,LAST-1)], cmpB: M[LAST],
+            dc:'OVERVIEW', fc:'OVERVIEW', lm:'OVERVIEW', scope:'FC', src:'PNL' };
 /* scope is fixed: Total SCM always = DC Operation + Mid-Mile + FC Operation + FC last-mile.
    The whole delivery operation (Store + FC + Local) lives on the Last-Mile page. */
 
 /* ---------- period helpers (Monthly vs YTD) ---------- */
-function periodIdx(){ const i=mi(S.month); if(S.mode==='M') return [i];
+/* THREE modes, and every figure on every page flows through these four helpers, so a
+   mode only has to be defined once here rather than page by page:
+     M — the selected month
+     Y — Jan .. selected month of that year
+     C — Compare: cmpB is the "current" period, cmpA is what it is measured against.
+         Any two months may be picked, in either order. */
+function periodIdx(){ const i=mi(S.month);
+  if(S.mode==='C') return [mi(S.cmpB)];
+  if(S.mode==='M') return [i];
   const y=S.month.split('-')[0]; const out=[]; for(let k=0;k<=i;k++) if(M[k].startsWith(y)) out.push(k); return out; }
 function pSum(arr){ return periodIdx().reduce((a,k)=>a+(arr[k]||0),0); }
-function pPrev(arr){                       // comparison basis: prev month, or same period LY for YTD
+function pPrev(arr){                       // comparison basis: prev month · same period LY · month A
   const i=mi(S.month);
+  if(S.mode==='C'){ const a=arr[mi(S.cmpA)]; return a || null; }
   if(S.mode==='M') return i>0 ? arr[i-1] : null;
   const idx=periodIdx().map(k=>k-12).filter(k=>k>=0);
   if(!idx.length) return null; const v=idx.reduce((a,k)=>a+(arr[k]||0),0); return v||null;
 }
 function pYoY(arr){ const i=mi(S.month); if(S.mode!=='M') return null; return i>=12 && arr[i-12] ? arr[i-12] : null; }
-const modeLbl = ()=> S.mode==='M' ? label(S.month) : 'YTD Jan–'+label(S.month).split(' ')[0]+' '+S.month.split('-')[0];
-const cmpLbl  = ()=> S.mode==='M' ? 'MoM' : 'vs YTD LY';
+const modeLbl = ()=> S.mode==='C' ? label(S.cmpB)+' vs '+label(S.cmpA)
+                   : S.mode==='M' ? label(S.month)
+                   : 'YTD Jan–'+label(S.month).split(' ')[0]+' '+S.month.split('-')[0];
+const cmpLbl  = ()=> S.mode==='C' ? 'vs '+label(S.cmpA) : S.mode==='M' ? 'MoM' : 'vs YTD LY';
 
 /* ---------- formatting ---------- */
 const fmt  = (v,d=1) => v==null||isNaN(v) ? '–' : v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -1108,17 +1132,18 @@ const ICONS = {
 
 /* ---------- navigation ---------- */
 const NAV = [
-  {g:'Overview', items:[ ['summary','Summary'], ['unit','Unit Cost Analysis'] ]},
+  {g:'Overview', items:[ ['summary','Summary'], ['driver','Cost Driver'], ['unit','Unit Cost Analysis'] ]},
   {g:'B2B — Distribution Center', items:[ ['dc','Distribution Center'], ['mm','Mid-Mile Transport'] ]},
   {g:'B2C — Fulfillment Center', items:[ ['fc','Fulfillment Center'], ['lm','Last-Mile Delivery'] ]},
   {g:'Reference', items:[ ['guide','User Guide'], ['raw','Raw Data Export'] ]},
 ];
 const TITLES = {
   summary:['Executive Summary','Total supply-chain cost across B2B (Distribution Center + Mid-Mile) and B2C (Fulfillment Center + Last-Mile)'],
+  driver:['Cost Driver — Root Cause','What actually moved the number: the change decomposed down to the account that caused it'],
   unit:['Unit Cost Analysis','Cost per case / kg / trip / order — the efficiency view'],
   dc:['Distribution Center — B2B','10 distribution centers: 6 Dry + 4 Fresh'],
   mm:['Mid-Mile Transport','DC-to-store transportation across all distribution centers'],
-  fc:['Fulfillment Center — B2C','7 fulfillment centers (e-commerce operation)'],
+  fc:['Fulfillment Center — B2C', FC_ORDER.length+' fulfillment centers (e-commerce operation)'],
   lm:['Last-Mile Delivery — B2C','Store, FC and Local delivery fleet: cost, labor, fleet and productivity'],
   guide:['User Guide','What this dashboard is for and how to use it'],
   raw:['Raw Data Export','Pick a dataset and the columns you need, then download it as CSV'],
@@ -1144,7 +1169,8 @@ function go(p){ S.page=p; render(); }
 function goMonth(page, m){ S.page=page; if(m && MONTHS.indexOf(m)>=0) S.month=m; render(); }
 function setMonth(m){ if(m && MONTHS.indexOf(m)>=0){ S.month=m; render(); } }
 /* reset every filter/selector back to its default (latest month, Monthly, AO, overview). */
-const S_DEFAULT = { month:M[LAST], mode:'M', dc:'OVERVIEW', fc:'OVERVIEW', lm:'OVERVIEW', scope:'FC', src:'PNL' };
+const S_DEFAULT = { month:M[LAST], mode:'M', cmpA:M[Math.max(0,LAST-1)], cmpB:M[LAST],
+                    dc:'OVERVIEW', fc:'OVERVIEW', lm:'OVERVIEW', scope:'FC', src:'PNL' };
 function filtersAtDefault(){ return S.month===S_DEFAULT.month && S.mode==='M' && S.src==='PNL'
   && S.dc==='OVERVIEW' && S.fc==='OVERVIEW' && S.lm==='OVERVIEW'; }
 function resetFilters(){ Object.assign(S, S_DEFAULT); render(); }
@@ -1182,6 +1208,24 @@ function drawControls(){
     b.classList.toggle('on', b.dataset.m===S.mode);
     b.onclick=()=>{ S.mode=b.dataset.m; render(); };
   });
+  /* Compare: two month pickers, shown only in Compare mode. The plain month picker is
+     hidden there, because in Compare the two dropdowns below ARE the period. */
+  const cc=document.getElementById('ctlCmp');
+  if(cc){
+    cc.style.display = S.mode==='C' ? 'flex' : 'none';
+    const mp=document.getElementById('ctlMonth'); if(mp) mp.style.display = S.mode==='C' ? 'none' : 'flex';
+    if(S.mode==='C'){
+      /* Only months that actually carry data. M runs to December of the reporting year,
+         but LBL stops at the last month with figures — listing the rest would offer
+         empty periods and print "undefined" as their label. */
+      [['selA','cmpA'],['selB','cmpB']].forEach(([id,key])=>{
+        const sel=document.getElementById(id); if(!sel) return;
+        sel.innerHTML = M.slice(0, LAST+1)
+          .map((mo,k)=>`<option value="${mo}"${mo===S[key]?' selected':''}>${LBL[k]}</option>`).join('');
+        sel.onchange = e => { S[key]=e.target.value; render(); };
+      });
+    }
+  }
   /* Source switch — visible wherever the two systems overlap (Summary, FC, Last-Mile) */
   const sr=document.getElementById('ctlSrc');
   if(sr){
@@ -1196,26 +1240,19 @@ function drawControls(){
       document.querySelectorAll('#segSrc button').forEach(b=>{ b.onclick=()=>{ S.src=b.dataset.r; render(); }; });
     }
   }
-  /* Scope switch — only meaningful on the Summary page, where Total SCM is stated */
+  /* The last-mile SCOPE selector was removed when Total SCM was fixed to one definition.
+     Its markup lingered behind display:none and still referenced SCOPE_TXT.NET, which
+     has not existed since — so it rendered the literal text "undefined" into a hidden
+     element. Dead and now deleted; the control stays hidden with nothing inside it. */
   const sc=document.getElementById('ctlScope');
-  if(sc){
-    sc.style.display = 'none';   /* scope selector removed — Total SCM has one fixed definition */
-    sc.innerHTML = `<label>Last-mile scope ${info(SCOPE_TXT.FC+'  //  '+SCOPE_TXT.NET)}</label>
-      <div class="seg" id="segScope">
-        <button data-s="FC"  class="${S.scope==='FC'?'on':''}"  data-tip="${esc0(SCOPE_TXT.FC)}">FC scope</button>
-        <button data-s="NET" class="${S.scope==='NET'?'on':''}" data-tip="${esc0(SCOPE_TXT.NET)}">All delivery channels</button>
-      </div>`;
-    document.querySelectorAll('#segScope button').forEach(b=>{
-      b.onclick=()=>{ S.scope=b.dataset.s; render(); };
-    });
-  }
+  if(sc){ sc.style.display='none'; sc.innerHTML=''; }
 }
 
 /* ---------- router ---------- */
 function render(){
   tipInit(); killCharts(); drawNav(); drawControls();
   const el=document.getElementById('page');
-  ({summary:pgSummary, unit:pgUnit, dc:pgDC, mm:pgMM, fc:pgFC, lm:pgLM, guide:pgGuide, raw:pgRaw})[S.page](el);
+  ({summary:pgSummary, driver:pgDriver, unit:pgUnit, dc:pgDC, mm:pgMM, fc:pgFC, lm:pgLM, guide:pgGuide, raw:pgRaw})[S.page](el);
   window.scrollTo(0,0);
 }
 let _rz=null;
@@ -1226,16 +1263,35 @@ window.addEventListener('DOMContentLoaded', render);
 <script>
 /* ============================ PAGES ============================ */
 'use strict';
-/* Every month-series chart shows a rolling window of at most 12 months that ENDS at
-   the selected month, so the last bar on the chart is always the month picked in the
-   top-right filter. winEnd = selected month; winStart = 11 months earlier (clamped). */
+/* Every month-series chart ENDS at the selected month, so the last bar is always the
+   month picked in the top-right filter. How far back it starts depends on the MODE:
+
+     Monthly  → rolling 12 months (a full year of context behind the selected month)
+     YTD      → January of the selected year → the selected month
+
+   This mirrors what the KPI cards do (periodIdx/pSum), so a chart and the card above
+   it now always describe the same span. Before v17 every chart was hardwired to 12
+   months, which meant YTD cards and monthly-window charts disagreed on the same page. */
 const WIN = 12;
-const winEnd   = () => mi(S.month);
-const winStart = () => Math.max(0, winEnd() - (WIN - 1));
+function winEnd(){
+  if(S.mode === 'C') return Math.max(mi(S.cmpA), mi(S.cmpB));   // Compare: span the two picks
+  return mi(S.month);
+}
+function winStart(){
+  const e = winEnd();
+  if(S.mode === 'C') return Math.min(mi(S.cmpA), mi(S.cmpB));   // Compare: earlier of the two
+  if(S.mode === 'Y'){                       // YTD: back to January of the selected year
+    const y = M[e].slice(0,4);
+    let s = e;
+    while(s > 0 && M[s-1].startsWith(y)) s--;
+    return s;
+  }
+  return Math.max(0, e - (WIN - 1));        // Monthly: rolling 12 months
+}
 const sl   = a => a.slice(winStart(), winEnd() + 1);
 const wLBL = () => LBL.slice(winStart(), winEnd() + 1);
 /* FC data starts at FC_START, so its window is clamped there */
-const fWinStart = () => Math.max(FC_START, winEnd() - (WIN - 1));
+const fWinStart = () => Math.max(FC_START, winStart());
 const fsl  = a => a.slice(fWinStart(), winEnd() + 1);
 const fLBL = () => LBL.slice(fWinStart(), winEnd() + 1);
 
@@ -1360,15 +1416,33 @@ function pgSummary(el){
 function pgUnit(el){
   const i=mi(S.month);
   /* ---- cost per order: B2C average, ranking and per-site split ---- */
-  const cpoAtM=(c,k)=> FC[c].orders[k]? (FC[c].op[k]+fcLmOf(c)[k])*1e6/FC[c].orders[k] : null;
-  const opoAtM=(c,k)=> FC[c].orders[k]? FC[c].op[k]*1e6/FC[c].orders[k] : null;
-  const lpoAtM=(c,k)=> FC[c].orders[k]? fcLmOf(c)[k]*1e6/FC[c].orders[k] : null;
+  /* B2C figures follow the SAME period as the rest of the page: one month in Monthly
+     mode, Jan..selected in YTD. Summing cost and orders across the period before
+     dividing is the only correct way to do it — averaging the monthly rates would
+     weight a quiet January the same as a busy July. */
+  const pIdx = periodIdx();
+  const sumOver = (idx, f) => idx.reduce((a,k)=> a + (f(k)||0), 0);
+  const ordOf = (c,idx) => sumOver(idx, k=>FC[c].orders[k]);
+  const opOf  = (c,idx) => sumOver(idx, k=>FC[c].op[k]);
+  const lmOf  = (c,idx) => sumOver(idx, k=>fcLmOf(c)[k]);
+  const rate  = (cost,ord) => ord ? cost*1e6/ord : null;
+  /* previous basis: prior month in Monthly mode, same period last year in YTD */
+  const prevIdx = (S.mode==='M') ? (i>0?[i-1]:[]) : pIdx.map(k=>k-12).filter(k=>k>=0);
+
+  const cpoOf = (c,idx) => rate(opOf(c,idx)+lmOf(c,idx), ordOf(c,idx));
+  const ordAll = idx => FC_ORDER.reduce((a,c)=>a+ordOf(c,idx),0);
+  const cstAll = idx => FC_ORDER.reduce((a,c)=>a+opOf(c,idx)+lmOf(c,idx),0);
+  /* single-month versions — the month-by-month history table below needs a value
+     per row, which is a different question from the period figure in the cards */
   const ordAt = k => FC_ORDER.reduce((a,c)=>a+(FC[c].orders[k]||0),0);
   const cstAt = k => FC_ORDER.reduce((a,c)=>a+(FC[c].op[k]||0)+(fcLmOf(c)[k]||0),0);
-  const cpoNet     = ordAt(i)? cstAt(i)*1e6/ordAt(i) : null;
-  const cpoNetPrev = (i>0 && ordAt(i-1))? cstAt(i-1)*1e6/ordAt(i-1) : null;
-  const cpoRank = FC_ORDER.filter(c=>cpoAtM(c,i)!=null).map(c=>({c, name:FC_SHORT[c], v:cpoAtM(c,i),
-      op:opoAtM(c,i), lm:lpoAtM(c,i), prev:(i>0? cpoAtM(c,i-1):null)})).sort((a,b)=>b.v-a.v);
+  const cpoNet     = rate(cstAll(pIdx),    ordAll(pIdx));
+  const cpoNetPrev = prevIdx.length ? rate(cstAll(prevIdx), ordAll(prevIdx)) : null;
+  const cpoRank = FC_ORDER.filter(c=>cpoOf(c,pIdx)!=null).map(c=>({c, name:FC_SHORT[c],
+      v:  cpoOf(c,pIdx),
+      op: rate(opOf(c,pIdx), ordOf(c,pIdx)),
+      lm: rate(lmOf(c,pIdx), ordOf(c,pIdx)),
+      prev: prevIdx.length ? cpoOf(c,prevIdx) : null})).sort((a,b)=>b.v-a.v);
   /* DC cost INCLUDES the TFRS16 lease add-on — TFRS16 is distribution-centre cost,
      so excluding it understated every DC rate and broke card1 = card2 + card3. */
   const dryWH=add(dcRaw('Dry','total_wh'),dcRaw('Dry','tfrs16')), dryIn=dcRaw('Dry','inbound_case'), dryGrand=dcRaw('Dry','grand_total');
@@ -1718,9 +1792,17 @@ function pgFC(el){
   fcDetail(el, chipsRow, S.fc);
 }
 /* period-aware AOV (THB/order): monthly = P&L AOV row; YTD = Σsales ÷ Σorders */
+/* orders summed over the page period (one month in Monthly, Jan..selected in YTD) */
+function pOrders(f){ return periodIdx().reduce((a,k)=>a+(f.orders[k]||0),0); }
+/* orders over the comparison basis: previous month, or same period last year in YTD */
+function pOrdersPrev(f){
+  const i=mi(S.month);
+  const idx = (S.mode==='M') ? (i>0?[i-1]:[]) : periodIdx().map(k=>k-12).filter(k=>k>=0);
+  return idx.reduce((a,k)=>a+(f.orders[k]||0),0);
+}
 function aovOf(f){
   if(S.mode==='M') return f.aov[mi(S.month)] || null;
-  const ords=periodIdx().reduce((a,k)=>a+(f.orders[k]||0),0);
+  const ords=pOrders(f);
   const s=pSum(f.sales);
   return (ords && s)? s*1e6/ords : null;
 }
@@ -1729,7 +1811,8 @@ function fcOverview(el, chipsRow){
   const op=sumFC('op'), sales=sumFC('sales');
   const rows=FC_ORDER.map(c=>{const f=FC[c];
     const s=pSum(f.sales), o=pSum(f.op);
-    const ord=f.orders[i], cpo=ord? f.op[i]*1e6/ord : null;
+    /* orders and cost/order follow the page period, not a single month */
+    const ord=pOrders(f), cpo=ord? o*1e6/ord : null;
     const av=aovOf(f);
     return [`<span class="name">${f.name}</span> ${c==='FC409'?BADGES.fc409:''}${c==='FC403'?BADGES.fc403:''}`,
       s?fMB(s):'<span class="mut">–</span>',
@@ -1773,8 +1856,19 @@ function fcOverview(el, chipsRow){
 }
 function fcDetail(el, chipsRow, code){
   const i=mi(S.month); const f=FC[code];
-  const ord=f.orders[i], sales=pSum(f.sales), t=pSum(f.total), o=pSum(f.op), l=pSum(f.lm);
-  const cpo=ord? f.total[i]*1e6/ord:null, wpo=ord? f.op[i]*1e6/ord:null, lpo=ord? f.lm[i]*1e6/ord:null;
+  /* every figure on this card row follows the page period, not a single month */
+  const sales=pSum(f.sales), t=pSum(f.total), o=pSum(f.op), l=pSum(f.lm);
+  const ord=pOrders(f), ordPrev=pOrdersPrev(f);
+  const avNow=aovOf(f);
+  const cpoPrev=(()=>{ const ii=(S.mode==='M')?(i>0?[i-1]:[]):periodIdx().map(k=>k-12).filter(k=>k>=0);
+    if(!ii.length) return null;
+    const oo=ii.reduce((a,k)=>a+(f.orders[k]||0),0), cc=ii.reduce((a,k)=>a+(f.op[k]||0),0);
+    return oo? cc*1e6/oo : null; })();
+  /* days in the period, so orders/day is right in YTD as well as Monthly */
+  const pDays=(cd)=>periodIdx().reduce((a,k)=>a+(alignPnlDays(cd,k)||30),0);
+  /* period totals over period orders — not month i, or YTD would divide a year of
+     cost by one month of orders and report a rate roughly seven times too high */
+  const cpo=ord? t*1e6/ord:null, wpo=ord? o*1e6/ord:null, lpo=ord? l*1e6/ord:null;
   const fcRaw=RAW.fc[code]; const shMonths=fcRaw.months.map(mo=>mi(mo)).filter(k=>k>=fWinStart()&&k<=winEnd());
   const shLbl=shMonths.map(k=>LBL[k]);
   const secs=[['personnel','Personnel'],['establishment','Establishment'],['computer','Computer'],['general','General (excl. last-mile)'],['depreciation','D&A'],['rent','Rent']];
@@ -1782,10 +1876,10 @@ function fcDetail(el, chipsRow, code){
     return fcRaw.months.map((mo,j)=>{const g=(a[j]||0); return (k==='general'? g-(lmv[j]||0):g)/1e6;}).filter((_,j)=>mi(fcRaw.months[j])>=fWinStart()&&mi(fcRaw.months[j])<=winEnd());};
   el.innerHTML = chipsRow + `
   <div class="grid cards4">
-    ${kpi({title:f.name+' — Sales (GMV)',val:sales?fMB(sales):'–',unit:'MB',chips:[chip(sales,pPrev(f.sales),cmpLbl(),true)],sub:f.aov[i]?('AOV '+fmt(f.aov[i],0)+' THB'):'', badge:' '+srcBadge()+(code==='FC409'?' '+BADGES.fc409:'')+(code==='FC403'?' '+BADGES.fc403:'')})}
-    ${kpi({title:'Orders',val:ord?fmt(ord,0):'–',unit:'orders '+(S.mode==='Y'?'(selected month)':''),chips:ord?[chip(ord,f.orders[i-1],'MoM',true)]:[],sub:ord?fmt(ord/(alignPnlDays(code,i)||30),0)+' orders/day':''})}
+    ${kpi({title:f.name+' — Sales (GMV)',val:sales?fMB(sales):'–',unit:'MB',chips:[chip(sales,pPrev(f.sales),cmpLbl(),true)],sub:avNow?('AOV '+fmt(avNow,0)+' THB'):'', badge:' '+srcBadge()+(code==='FC409'?' '+BADGES.fc409:'')+(code==='FC403'?' '+BADGES.fc403:'')})}
+    ${kpi({title:'Orders',val:ord?fmt(ord,0):'–',unit:'orders',chips:ord&&ordPrev?[chip(ord,ordPrev,cmpLbl(),true)]:[],sub:ord?fmt(ord/(pDays(code)||30),0)+' orders/day':''})}
     ${kpi({title:'FC Operation Cost',val:fMB(t),unit:'MB',sub:'delivery reported under Last-Mile',chips:[chip(t,pPrev(f.op),cmpLbl())]})}
-    ${kpi({title:'Cost / Order',val:cpo?fmt(cpo,0):'–',unit:'THB',sub:cpo?'operation only':'no order data',chips:cpo&&f.orders[i-1]?[chip(cpo,f.op[i-1]*1e6/f.orders[i-1],'MoM')]:[]})}
+    ${kpi({title:'Cost / Order',val:cpo?fmt(cpo,0):'–',unit:'THB',sub:cpo?'operation only':'no order data',chips:cpo&&cpoPrev?[chip(cpo,cpoPrev,cmpLbl())]:[]})}
   </div>
   <div class="grid g3" style="margin-top:14px">
     <div class="card">${chBox('chFCmix',230,'Share of B2C operation')}</div>
@@ -2455,6 +2549,113 @@ function pgRaw(el){
 }
 /* download box (bottom of Raw Data Export): hands back the original source workbooks
    embedded in this file. The last-mile .xlsb is not embedded (too large). */
+
+/* =========================== COST DRIVER — ROOT CAUSE ===========================
+   Every other page answers "what is the number". This one answers "what moved it".
+
+   It decomposes the CHANGE, not the level, and it follows whatever the mode filter
+   says — so the same page gives a different (and equally true) answer depending on
+   whether you ask about the month or the year. That is the point of it: in July 2026
+   the monthly culprit is DC general expenses, while year-to-date it is Dry mid-mile
+   transport, which barely registers month on month. */
+function pgDriver(el){
+  const cur = periodIdx();
+  const base = (()=> {                      // what "before" means in each mode
+    const i=mi(S.month);
+    if(S.mode==='C') return [mi(S.cmpA)];
+    if(S.mode==='M') return i>0?[i-1]:[];
+    return cur.map(k=>k-12).filter(k=>k>=0);
+  })();
+  const sum=(arr,idx)=> idx.reduce((a,k)=>a+(arr[k]||0),0);
+  const dl =(arr)=> sum(arr,cur)-sum(arr,base);
+  const basisLbl = S.mode==='C' ? label(S.cmpA)
+                 : S.mode==='M' ? (mi(S.month)>0? label(M[mi(S.month)-1]) : '—')
+                 : 'YTD '+(+S.month.slice(0,4)-1);
+
+  if(!base.length){
+    el.innerHTML = `<div class="card"><h4>Cost Driver</h4>
+      <p class="sub">There is no earlier period to compare ${modeLbl()} against, so there is no
+      change to decompose. Pick a later month, or switch mode.</p></div>`;
+    return;
+  }
+
+  /* ---- level 1: the four segments ---- */
+  const segs=[
+    {n:'Distribution Center', v:dl(SEG.b2bWH),   c:SEGCOL.dcop, k:'dc'},
+    {n:'Mid-Mile Transport',  v:dl(SEG.midMile), c:SEGCOL.mm,   k:'mm'},
+    {n:'FC Operation',        v:dl(SEG.fcOp),    c:SEGCOL.fcop, k:'fc'},
+    {n:'Last-Mile Delivery',  v:dl(SEG.lastMile),c:SEGCOL.lm,   k:'lm'},
+  ];
+  const total = dl(SEG.total);
+
+  /* ---- level 2: what inside DC moved (the usual answer) ---- */
+  const secs = DC_SECS.map(([k,n])=>({n, v: dl(add(dcMB('Dry',k), dcMB('Fresh',k)))}))
+    .concat([{n:'TFRS16', v: dl(add(dcMB('Dry','tfrs16'), dcMB('Fresh','tfrs16')))}])
+    .filter(r=>Math.abs(r.v)>=0.05).sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
+  const outsrc = dl(add(dcMB('Dry','outsourcing'), dcMB('Fresh','outsourcing')));
+
+  /* ---- level 2: which FC moved ---- */
+  const fcs = FC_ORDER.map(c=>({n:FC[c].name, v:dl(FC[c].op), c:FC_COLOR[c]}))
+    .filter(r=>Math.abs(r.v)>=0.05).sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
+
+  /* biggest single driver across everything we can name */
+  const named=[...secs.map(r=>({...r,where:'Distribution Center'})),
+               ...fcs.map(r=>({...r,where:'FC Operation'})),
+               {n:'Mid-Mile Transport', v:dl(SEG.midMile), where:'Mid-Mile'},
+               {n:'Last-Mile Delivery', v:dl(SEG.lastMile), where:'Last-Mile'}];
+  const top = named.slice().sort((a,b)=>Math.abs(b.v)-Math.abs(a.v))[0];
+  const share = (total && top) ? Math.abs(top.v/total*100) : null;
+
+  const bar=(rows,mx)=> rows.map(r=>{
+    const w=mx? Math.abs(r.v)/mx*100 : 0, neg=r.v<0;
+    return `<tr><td><span class="name">${esc(r.n)}</span></td>
+      <td style="width:48%"><div class="dbar"><div class="dfill" style="width:${w.toFixed(1)}%;
+        background:${r.c||(neg?C.grey:C.navy)};${neg?'opacity:.55':''}"></div></div></td>
+      <td style="text-align:right"><b class="${neg?'dn':'up'}">${neg?'':'+'}${fmt(r.v,2)}</b></td></tr>`;
+  }).join('');
+  const mxS=Math.max(...segs.map(r=>Math.abs(r.v)),0.01);
+  const mxD=Math.max(...secs.map(r=>Math.abs(r.v)),0.01);
+  const mxF=Math.max(...fcs.map(r=>Math.abs(r.v)),0.01);
+
+  el.innerHTML = `
+  <div class="grid cards3">
+    ${kpi({title:'Total SCM change', val:(total>0?'+':'')+fmt(total,2), unit:'MB', hero:false,
+      sub:modeLbl()+' vs '+esc(basisLbl)})}
+    ${kpi({title:'Biggest single driver', val:top?esc(top.n):'–', unit:'',
+      sub:top? ((top.v>0?'+':'')+fmt(top.v,2)+' MB · inside '+esc(top.where)) : ''})}
+    ${kpi({title:'Share of the whole change', val:share!=null?fmt(share,0):'–', unit:'%',
+      sub:'one line explains this much of the move'})}
+  </div>
+
+  <div class="section-h"><h5>Level 1 — which segment moved</h5><div class="ln"></div>
+    <span class="mini">${modeLbl()} vs ${esc(basisLbl)} · MB</span></div>
+  <div class="card"><table class="dtbl">${bar(segs,mxS)}
+    <tr class="dtot"><td><b>Total SCM</b></td><td></td>
+      <td style="text-align:right"><b class="${total<0?'dn':'up'}">${total<0?'':'+'}${fmt(total,2)}</b></td></tr>
+  </table></div>
+
+  <div class="grid g2e" style="margin-top:14px">
+    <div class="card"><h4>Level 2 — inside Distribution Center ${info('Ledger sections, both temperatures combined. This is usually where the answer is.')}</h4>
+      ${secs.length? `<table class="dtbl">${bar(secs,mxD)}</table>
+      <p class="sub">Of the General movement, <b>${(outsrc>0?'+':'')+fmt(outsrc,2)} MB</b> is outsourcing —
+        the single largest line in the whole build.</p>`
+      : '<p class="sub">No DC section moved by more than 0.05 MB.</p>'}</div>
+    <div class="card"><h4>Level 2 — inside FC Operation ${info('Per site. New and ramping sites dominate this list.')}</h4>
+      ${fcs.length? `<table class="dtbl">${bar(fcs,mxF)}</table>`
+      : '<p class="sub">No fulfillment centre moved by more than 0.05 MB.</p>'}</div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h4>How to read this</h4>
+    <p class="sub">Bars are sized against the largest mover in their own group, so each level is readable on its
+      own scale. Colour is meaning, not direction: <b class="up">red pushed cost up</b>,
+      <b class="dn">green pulled it down</b>. Rows below ±0.05 MB are omitted, so the parts will not always add
+      exactly to the total.
+      <br><br><b>Change the mode and the answer changes</b> — that is not a bug. Monthly asks "what happened last
+      month"; YTD asks "what has happened all year". A driver that dominates one can be invisible in the other,
+      and fixing the monthly problem does not necessarily touch the annual one.</p>
+  </div>`;
+}
 
 </script>
 </body>
